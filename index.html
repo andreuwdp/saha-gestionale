@@ -66,8 +66,8 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
 .login-reset-link a{color:var(--gold);cursor:pointer;text-decoration:none;}
 
 /* ═══ APP LAYOUT ═══ */
-#app{display:none;min-height:100vh;flex-direction:column;}
-#app.visible{display:flex;}
+#app{display:none;min-height:100vh;flex-direction:column;width:100%;}
+#app.visible{display:flex;flex-direction:column;width:100%;min-height:100vh;}
 
 /* TOPBAR */
 .topbar{
@@ -831,6 +831,7 @@ async function doLogin() {
     document.getElementById('login-btn-txt').textContent = 'Accedi';
     return;
   }
+  console.log('Login success, calling initApp');
   await initApp(data.user);
 }
 
@@ -845,18 +846,43 @@ async function doLogout() {
 }
 
 async function initApp(user) {
-  currentUser = user;
-  const { data: profile } = await sb.from('profiles').select('*').eq('id', user.id).single();
-  currentProfile = profile || { ruolo: 'dipendente', nome: '', cognome: '', email: user.email };
-  document.getElementById('login-page').style.display = 'none';
-  document.getElementById('app').classList.add('visible');
-  setupRoleUI();
-  updateTopbarUser();
-  try { await logActivity('Accesso al gestionale', 'login'); } catch(e) { console.log('Log error:', e); }
-  goTo('dashboard');
-  checkResetRequests();
-  setInterval(updatePresenzaClock, 1000);
-  updatePresenzaClock();
+  try {
+    console.log('initApp start', user.email);
+    currentUser = user;
+    
+    // Get profile
+    const { data: profile, error: profErr } = await sb.from('profiles').select('*').eq('id', user.id).single();
+    console.log('profile loaded:', profile, 'error:', profErr);
+    currentProfile = profile || { ruolo: 'dipendente', nome: '', cognome: '', email: user.email };
+    
+    // Hide login, show app
+    const loginPage = document.getElementById('login-page');
+    const appDiv = document.getElementById('app');
+    console.log('loginPage:', loginPage, 'appDiv:', appDiv);
+    
+    if (loginPage) loginPage.style.display = 'none';
+    if (appDiv) {
+      appDiv.style.display = 'flex';
+      appDiv.style.flexDirection = 'column';
+      appDiv.classList.add('visible');
+    }
+    
+    console.log('app shown, calling setupRoleUI');
+    setupRoleUI();
+    updateTopbarUser();
+    
+    try { await logActivity('Accesso al gestionale', 'login'); } catch(e) { console.log('Log error:', e); }
+    
+    console.log('calling goTo dashboard');
+    goTo('dashboard');
+    checkResetRequests();
+    setInterval(updatePresenzaClock, 1000);
+    updatePresenzaClock();
+    console.log('initApp complete');
+  } catch(e) {
+    console.error('initApp ERROR:', e);
+    alert('Errore inizializzazione: ' + e.message);
+  }
 }
 
 function setupRoleUI() {
