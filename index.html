@@ -928,21 +928,16 @@ async function initApp(user) {
 }
 
 function setupRoleUI() {
-  const isCapo = currentProfile.ruolo === 'capo';
-  const isEditor = currentProfile.ruolo === 'editor';
-  // Capo-only sections
+  const isCapo = currentProfile.ruolo === 'capo' || currentProfile.ruolo === 'editor';
+  // Editor ha accesso identico al capo
   document.querySelectorAll('.capo-only').forEach(el => {
     el.style.display = isCapo ? 'flex' : 'none';
   });
   document.getElementById('nav-section-capo').style.display = isCapo ? 'block' : 'none';
   document.getElementById('reset-request-card').style.display = isCapo ? 'none' : 'block';
-  // Capo non vede presenze proprie
+  // Capo e Editor non vedono presenze (hanno turni)
   if (isCapo) {
     document.getElementById('nav-presenze').style.display = 'none';
-  }
-  // Editor: vede tutto tranne sezioni capo, NON viene loggato nel registro
-  if (isEditor) {
-    document.getElementById('nav-presenze').style.display = 'flex';
   }
 }
 
