@@ -22,7 +22,7 @@
 body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min-height:100vh;}
 
 /* ═══ LOGIN PAGE ═══ */
-#login-page{display:none;align-items:center;justify-content:center;
+#login-page{display:flex;align-items:center;justify-content:center;
   min-height:100vh;background:var(--bg);
   padding:20px;
 }
@@ -348,6 +348,13 @@ tr:hover td{background:var(--gold-glow);}
 </head>
 <body>
 
+<!-- LOADING SCREEN -->
+<div id="loading-screen" style="position:fixed;inset:0;background:#F8F5EF;display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:9999;">
+  <div style="font-family:'Cormorant Garamond',serif;font-size:42px;color:#B8862A;letter-spacing:6px;margin-bottom:8px;">SAHA</div>
+  <div style="font-size:11px;letter-spacing:3px;color:rgba(28,24,16,.5);text-transform:uppercase;margin-bottom:24px;">Profumeria Orientale</div>
+  <div style="width:40px;height:40px;border:3px solid rgba(184,134,42,.2);border-top-color:#B8862A;border-radius:50%;animation:spin 1s linear infinite;"></div>
+</div>
+<style>@keyframes spin{to{transform:rotate(360deg)}}</style>
 
 <!-- ══════════════ LOGIN PAGE ══════════════ -->
 <div id="login-page">
@@ -867,6 +874,7 @@ async function initApp(user) {
       appDiv.classList.add('visible');
     }
     
+    const ls = document.getElementById('loading-screen'); if(ls) ls.style.display='none';
     console.log('app shown, calling setupRoleUI');
     setupRoleUI();
     updateTopbarUser();
@@ -1864,6 +1872,9 @@ sb.auth.onAuthStateChange(async (event, session) => {
   } catch(e) {
     console.error('Auth init error:', e);
     document.getElementById('login-page').style.display = 'flex';
+  } finally {
+    const ls = document.getElementById('loading-screen');
+    if (ls) ls.style.display = 'none';
   }
 })();
 // Enter key on login
