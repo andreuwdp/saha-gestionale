@@ -22,8 +22,7 @@
 body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min-height:100vh;}
 
 /* ═══ LOGIN PAGE ═══ */
-#login-page{
-  display:flex;align-items:center;justify-content:center;
+#login-page{display:none;align-items:center;justify-content:center;
   min-height:100vh;background:var(--bg);
   padding:20px;
 }
@@ -67,7 +66,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
 .login-reset-link a{color:var(--gold);cursor:pointer;text-decoration:none;}
 
 /* ═══ APP LAYOUT ═══ */
-#app{display:none;min-height:100vh;display:flex;flex-direction:column;}
+#app{display:none;min-height:100vh;flex-direction:column;}
 #app.visible{display:flex;}
 
 /* TOPBAR */
@@ -853,7 +852,7 @@ async function initApp(user) {
   document.getElementById('app').classList.add('visible');
   setupRoleUI();
   updateTopbarUser();
-  await logActivity('Accesso al gestionale', 'login');
+  try { await logActivity('Accesso al gestionale', 'login'); } catch(e) { console.log('Log error:', e); }
   goTo('dashboard');
   checkResetRequests();
   setInterval(updatePresenzaClock, 1000);
@@ -976,7 +975,8 @@ async function logActivity(action, page='', details='') {
 // DASHBOARD
 // ══════════════════════════════════════════════════════════
 async function loadDashboard() {
-  const { data: prods } = await sb.from('products').select('*');
+  const { data: prods, error: prodErr } = await sb.from('products').select('*');
+  if (prodErr) { console.error('Products error:', prodErr); }
   allProducts = prods || [];
   const low = allProducts.filter(p => p.qty <= p.threshold);
   const today = new Date().toISOString().slice(0,10);
@@ -1827,15 +1827,19 @@ sb.auth.onAuthStateChange(async (event, session) => {
 
 // Check if already logged in
 (async () => {
-  const { data: { session } } = await sb.auth.getSession();
-  if (session?.user) {
-    await initApp(session.user);
-  } else {
-    document.getElementById('login-page').style.display='flex';
-    document.getElementById('app').style.display='none';
+  try {
+    const { data: { session } } = await sb.auth.getSession();
+    if (session?.user) {
+      await initApp(session.user);
+    } else {
+      document.getElementById('login-page').style.display = 'flex';
+      document.getElementById('app').style.display = 'none';
+    }
+  } catch(e) {
+    console.error('Auth init error:', e);
+    document.getElementById('login-page').style.display = 'flex';
   }
 })();
-
 // Enter key on login
 document.getElementById('login-pwd').addEventListener('keydown', e => { if(e.key==='Enter') doLogin(); });
 document.getElementById('login-email').addEventListener('keydown', e => { if(e.key==='Enter') document.getElementById('login-pwd').focus(); });
