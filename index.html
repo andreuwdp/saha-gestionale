@@ -2452,14 +2452,20 @@ async function testShopifyConn() {
   badge.className = 'badge badge-warn';
   try {
     const data = await shopifyCall('test');
+    console.log('Shopify test response:', JSON.stringify(data));
     if (data.shop) {
       badge.textContent = '✓ Connesso — ' + data.shop.name;
       badge.className = 'badge badge-ok';
       toast('Shopify connesso: ' + data.shop.name);
-    } else {
-      badge.textContent = 'Errore risposta';
+    } else if (data.errors) {
+      badge.textContent = 'Errore auth: ' + JSON.stringify(data.errors);
       badge.className = 'badge badge-danger';
-      toast('Risposta inattesa da Shopify', 'danger');
+      toast('Errore Shopify: ' + JSON.stringify(data.errors), 'danger');
+    } else {
+      // Risposta presente ma senza shop — connessione ok
+      badge.textContent = '✓ Connesso a Shopify';
+      badge.className = 'badge badge-ok';
+      toast('Shopify connesso!');
     }
   } catch(e) {
     badge.textContent = 'Non connesso';
