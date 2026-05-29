@@ -369,7 +369,31 @@ tr:hover td{background:var(--gold-glow);}
 .pulse{animation:pulse 2s infinite;}
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
 
-/* ═══ ETICHETTE / QR CODE ═══ */
+/* ═══ SHOPIFY ═══ */
+.shopify-tab{
+  padding:10px 18px;border:none;background:none;cursor:pointer;
+  font-size:13px;font-family:'DM Sans',sans-serif;color:var(--text2);
+  border-bottom:2px solid transparent;transition:all .15s;
+}
+.shopify-tab:hover{color:var(--text);}
+.shopify-tab.active{color:var(--gold);border-bottom-color:var(--gold);font-weight:500;}
+.shopify-order-card{
+  background:#fff;border:1px solid var(--gold-border);border-radius:var(--r-lg);
+  padding:14px 16px;margin-bottom:10px;
+}
+.shopify-order-card.nuovo{border-left:3px solid var(--gold);}
+.shopify-prod-row{
+  display:flex;align-items:center;gap:12px;padding:10px 0;
+  border-bottom:1px solid rgba(184,134,42,.08);flex-wrap:wrap;
+}
+.shopify-prod-row:last-child{border-bottom:none;}
+.shopify-prod-img{width:44px;height:44px;border-radius:8px;object-fit:cover;background:var(--bg3);flex-shrink:0;}
+.link-row{display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid rgba(184,134,42,.08);flex-wrap:wrap;}
+.link-row:last-child{border-bottom:none;}
+.sync-log-item{padding:4px 0;border-bottom:1px solid rgba(184,134,42,.06);font-size:11px;}
+.sync-log-item.ok{color:var(--success);}
+.sync-log-item.err{color:var(--danger);}
+.sync-log-item.warn{color:var(--warning);}
 .label-preview{
   width:150px;height:100px;border:1px dashed var(--gold-border);
   border-radius:6px;padding:6px;display:flex;flex-direction:column;
@@ -486,6 +510,10 @@ tr:hover td{background:var(--gold-glow);}
         <button class="nav-item capo-only" id="nav-reset-requests" onclick="goTo('reset-requests')" style="display:none">
           <span class="ni-icon">🔑</span><span class="nav-label">Richieste password</span>
           <span class="nav-badge" id="reset-badge" style="display:none">!</span>
+        </button>
+        <button class="nav-item capo-only" id="nav-shopify" onclick="goTo('shopify')" style="display:none">
+          <span class="ni-icon">🛍️</span><span class="nav-label">Shopify</span>
+          <span class="nav-badge" id="shopify-badge" style="display:none">!</span>
         </button>
         <div class="nav-section">Personale</div>
         <button class="nav-item" id="nav-presenze" onclick="goTo('presenze')">
@@ -800,6 +828,73 @@ tr:hover td{background:var(--gold-glow);}
 </section>
 
 <!-- ══ PAGE: RESET REQUESTS (solo capo) ══ -->
+<!-- ══ PAGE: SHOPIFY ══ -->
+<section class="page" id="page-shopify">
+  <div class="sec-header">
+    <span class="sec-title">🛍️ Shopify</span>
+    <div style="display:flex;gap:8px;align-items:center;">
+      <span id="shopify-status-badge" class="badge badge-warn">Non connesso</span>
+      <button class="btn btn-outline btn-sm" onclick="testShopifyConn()"><i class="ti ti-refresh"></i> Test connessione</button>
+    </div>
+  </div>
+
+  <!-- TABS -->
+  <div style="display:flex;gap:0;margin-bottom:16px;border-bottom:1px solid var(--gold-border);">
+    <button class="shopify-tab active" id="stab-ordini" onclick="switchShopifyTab('ordini',this)">📦 Ordini online</button>
+    <button class="shopify-tab" id="stab-prodotti" onclick="switchShopifyTab('prodotti',this)">🏷️ Prodotti</button>
+    <button class="shopify-tab" id="stab-sync" onclick="switchShopifyTab('sync',this)">🔄 Sincronizza</button>
+  </div>
+
+  <!-- TAB: ORDINI -->
+  <div id="shopify-tab-ordini">
+    <div class="sec-header" style="margin-bottom:12px;">
+      <span style="font-size:13px;color:var(--text2);">Ordini ricevuti online · aggiornamento automatico</span>
+      <div style="display:flex;gap:8px;">
+        <select id="shopify-order-filter" style="padding:7px 10px;border-radius:var(--r);border:1px solid var(--gold-border);background:var(--bg3);font-size:12px;font-family:'DM Sans',sans-serif;" onchange="loadShopifyOrders()">
+          <option value="any">Tutti</option>
+          <option value="open">Aperti</option>
+          <option value="closed">Completati</option>
+        </select>
+        <button class="btn btn-gold btn-sm" onclick="loadShopifyOrders()"><i class="ti ti-refresh"></i> Aggiorna</button>
+      </div>
+    </div>
+    <div id="shopify-orders-list"><div style="color:var(--text3);font-size:13px;text-align:center;padding:30px;">Carica gli ordini con il pulsante "Aggiorna"</div></div>
+  </div>
+
+  <!-- TAB: PRODOTTI -->
+  <div id="shopify-tab-prodotti" style="display:none;">
+    <div class="sec-header" style="margin-bottom:12px;">
+      <span style="font-size:13px;color:var(--text2);">Prodotti pubblicati su sahacollection.it</span>
+      <button class="btn btn-gold btn-sm" onclick="loadShopifyProducts()"><i class="ti ti-refresh"></i> Carica prodotti</button>
+    </div>
+    <div id="shopify-products-list"><div style="color:var(--text3);font-size:13px;text-align:center;padding:30px;">Premi "Carica prodotti" per vedere il catalogo Shopify</div></div>
+  </div>
+
+  <!-- TAB: SINCRONIZZA -->
+  <div id="shopify-tab-sync" style="display:none;">
+    <div class="two-col">
+      <div class="card">
+        <div class="card-title"><i class="ti ti-arrow-right"></i> Gestionale → Shopify</div>
+        <p style="font-size:13px;color:var(--text2);margin-bottom:14px;">Allinea le scorte del gestionale con quelle online. Per ogni prodotto collegato aggiorna la quantità su Shopify.</p>
+        <div id="sync-match-list" style="margin-bottom:14px;max-height:300px;overflow-y:auto;"></div>
+        <button class="btn btn-gold" style="width:100%;" onclick="syncStockToShopify()"><i class="ti ti-refresh"></i> Sincronizza scorte ora</button>
+      </div>
+      <div class="card">
+        <div class="card-title"><i class="ti ti-arrow-left"></i> Shopify → Gestionale</div>
+        <p style="font-size:13px;color:var(--text2);margin-bottom:14px;">Importa gli ordini online ricevuti su Shopify e scala automaticamente le scorte nel gestionale.</p>
+        <div id="sync-import-log" style="font-size:12px;color:var(--text2);max-height:200px;overflow-y:auto;margin-bottom:14px;"></div>
+        <button class="btn btn-outline" style="width:100%;" onclick="importShopifyOrders()"><i class="ti ti-download"></i> Importa ordini recenti</button>
+      </div>
+    </div>
+    <div class="card" style="margin-top:16px;">
+      <div class="card-title"><i class="ti ti-link"></i> Collega prodotti gestionale ↔ Shopify</div>
+      <p style="font-size:12px;color:var(--text2);margin-bottom:12px;">Associa ogni prodotto del gestionale al corrispettivo su Shopify per sincronizzare scorte e prezzi.</p>
+      <div id="product-link-list"></div>
+      <button class="btn btn-gold btn-sm" style="margin-top:10px;" onclick="loadProductLinkList()"><i class="ti ti-refresh"></i> Carica lista collegamento</button>
+    </div>
+  </div>
+</section>
+
 <section class="page" id="page-reset-requests">
   <div class="sec-header"><span class="sec-title">🔑 Richieste reset password</span></div>
   <div id="reset-req-list"><div style="color:var(--text3);font-size:13px;text-align:center;padding:20px;">Caricamento...</div></div>
@@ -1097,7 +1192,7 @@ const PAGE_TITLES = {
   ordini:'Ordini in arrivo', aggiungi:'Aggiungi prodotto', storico:'Storico vendite',
   export:'Esporta dati', registro:'Registro attività', turni:'Turni',
   'turni-dip':'I miei turni', presenze:'Presenze', profilo:'Profilo', utenti:'Utenti',
-  'reset-requests':'Richieste password'
+  'reset-requests':'Richieste password', shopify:'Shopify'
 };
 
 function goTo(id) {
@@ -1127,6 +1222,7 @@ function goTo(id) {
   else if (id === 'profilo') loadProfilo();
   else if (id === 'utenti') loadUtenti();
   else if (id === 'reset-requests') loadResetRequests();
+  else if (id === 'shopify') loadShopify();
   else if (id === 'export') initExportDates();
 }
 
@@ -1333,6 +1429,8 @@ async function updateStock(id) {
   toast('Scorta aggiornata!');
   closeModal('modal-edit-stock');
   loadProducts();
+  // Sync Shopify
+  await askShopifySync(id, newQty, 'modifica scorta');
 }
 
 async function deleteProduct(id) {
@@ -1415,6 +1513,10 @@ async function confirmSale() {
   const idx = allProducts.findIndex(x=>x.id===p.id);
   if (idx>=0) { allProducts[idx].qty=newQty; allProducts[idx].sold=(p.sold||0)+sellQty; }
   if (newQty <= p.threshold) setTimeout(()=>toast(newQty===0?'🚨 Prodotto esaurito: '+p.name:'⚠️ Scorta bassa: '+p.name+' ('+newQty+' pz)','warning'),1500);
+  // Sync Shopify se canale online o se collegato
+  if (saleChannel === 'online' || shopifyProductLinks[p.id]) {
+    setTimeout(() => askShopifySync(p.id, newQty, 'vendita'), 2000);
+  }
 }
 
 async function loadTodaySales() {
@@ -2290,6 +2392,387 @@ async function exportSales(){
   await loadStorico();
   const rows=allSales.map(s=>[new Date(s.created_at).toLocaleString('it-IT'),s.product_name,s.brand||'',s.qty,s.channel,s.user_name||'',s.total]);
   doExport('Storico Vendite',['Data','Prodotto','Brand','Qty','Canale','Operatore','Totale'],rows,'storico');
+}
+
+// ══════════════════════════════════════════════════════════
+// SHOPIFY INTEGRATION
+// ══════════════════════════════════════════════════════════
+const SHOPIFY_EDGE_URL = 'https://bewpeaxvxomgjwcijnec.supabase.co/functions/v1/shopify-proxy';
+let shopifyProducts = [];
+let shopifyLocation = null;
+let shopifyProductLinks = {}; // { gestionale_id: { shopify_product_id, variant_id, inventory_item_id } }
+
+// Chiama la Edge Function con auth
+async function shopifyCall(action, payload = {}) {
+  const { data: { session } } = await sb.auth.getSession();
+  if (!session) throw new Error('Non autenticato');
+  const res = await fetch(SHOPIFY_EDGE_URL, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': 'Bearer ' + session.access_token
+    },
+    body: JSON.stringify({ action, payload })
+  });
+  if (!res.ok) throw new Error('Errore HTTP ' + res.status);
+  return res.json();
+}
+
+// Carica link prodotti da Supabase
+async function loadShopifyLinks() {
+  const { data } = await sb.from('shopify_links').select('*');
+  shopifyProductLinks = {};
+  (data || []).forEach(l => {
+    shopifyProductLinks[l.gestionale_id] = {
+      shopify_product_id: l.shopify_product_id,
+      variant_id: l.variant_id,
+      inventory_item_id: l.inventory_item_id
+    };
+  });
+}
+
+async function loadShopify() {
+  await loadShopifyLinks();
+  // Test connessione silenzioso
+  try {
+    const data = await shopifyCall('test');
+    if (data.shop) {
+      document.getElementById('shopify-status-badge').textContent = '✓ Connesso — ' + data.shop.name;
+      document.getElementById('shopify-status-badge').className = 'badge badge-ok';
+    }
+  } catch(e) {
+    document.getElementById('shopify-status-badge').textContent = 'Errore connessione';
+    document.getElementById('shopify-status-badge').className = 'badge badge-danger';
+  }
+}
+
+async function testShopifyConn() {
+  const badge = document.getElementById('shopify-status-badge');
+  badge.textContent = 'Verifica...';
+  badge.className = 'badge badge-warn';
+  try {
+    const data = await shopifyCall('test');
+    if (data.shop) {
+      badge.textContent = '✓ Connesso — ' + data.shop.name;
+      badge.className = 'badge badge-ok';
+      toast('Shopify connesso: ' + data.shop.name);
+    } else {
+      badge.textContent = 'Errore risposta';
+      badge.className = 'badge badge-danger';
+      toast('Risposta inattesa da Shopify', 'danger');
+    }
+  } catch(e) {
+    badge.textContent = 'Non connesso';
+    badge.className = 'badge badge-danger';
+    toast('Errore: ' + e.message, 'danger');
+  }
+}
+
+function switchShopifyTab(tab, el) {
+  ['ordini','prodotti','sync'].forEach(t => {
+    document.getElementById('shopify-tab-' + t).style.display = t === tab ? 'block' : 'none';
+    document.getElementById('stab-' + t).classList.toggle('active', t === tab);
+  });
+  if (tab === 'sync') loadProductLinkList();
+}
+
+// ── ORDINI ──
+async function loadShopifyOrders() {
+  const status = document.getElementById('shopify-order-filter').value;
+  const el = document.getElementById('shopify-orders-list');
+  el.innerHTML = '<div style="color:var(--text3);font-size:13px;text-align:center;padding:20px;">Caricamento...</div>';
+  try {
+    const data = await shopifyCall('get_orders', { status });
+    const orders = data.orders || [];
+    if (!orders.length) {
+      el.innerHTML = '<div style="color:var(--text3);font-size:13px;text-align:center;padding:20px;">Nessun ordine trovato.</div>';
+      // Aggiorna badge
+      document.getElementById('shopify-badge').style.display = 'none';
+      return;
+    }
+    // Badge ordini aperti
+    const aperti = orders.filter(o => o.financial_status === 'paid' && !o.fulfillment_status);
+    if (aperti.length) {
+      document.getElementById('shopify-badge').style.display = 'inline';
+      document.getElementById('shopify-badge').textContent = aperti.length;
+    } else {
+      document.getElementById('shopify-badge').style.display = 'none';
+    }
+    el.innerHTML = orders.map(o => {
+      const data_ord = new Date(o.created_at).toLocaleString('it-IT');
+      const cliente = o.billing_address ? `${o.billing_address.first_name} ${o.billing_address.last_name}` : (o.email || '—');
+      const indirizzo = o.shipping_address ? `${o.shipping_address.address1}, ${o.shipping_address.city}` : '—';
+      const items = (o.line_items || []).map(i => `${i.name} x${i.quantity}`).join(', ');
+      const totale = parseFloat(o.total_price).toFixed(2);
+      const pagato = o.financial_status === 'paid';
+      const spedito = o.fulfillment_status === 'fulfilled';
+      const nuovo = pagato && !spedito;
+      return `<div class="shopify-order-card ${nuovo?'nuovo':''}">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:8px;">
+          <div>
+            <div style="font-size:14px;font-weight:500;">#${o.order_number} · ${cliente}</div>
+            <div style="font-size:11px;color:var(--text2);margin-top:2px;">${data_ord}</div>
+            <div style="font-size:12px;color:var(--text2);margin-top:4px;">${items}</div>
+            <div style="font-size:11px;color:var(--text3);margin-top:2px;">📍 ${indirizzo}</div>
+          </div>
+          <div style="text-align:right;">
+            <div style="font-family:'Cormorant Garamond',serif;font-size:22px;color:var(--gold);">€${totale}</div>
+            <span class="badge ${pagato?'badge-ok':'badge-warn'}" style="margin-top:4px;">${pagato?'✓ Pagato':'In attesa'}</span>
+            <span class="badge ${spedito?'badge-ok':'badge-info'}" style="margin-top:4px;">${spedito?'✓ Spedito':'Da spedire'}</span>
+          </div>
+        </div>
+        ${nuovo ? `<div style="margin-top:10px;display:flex;gap:8px;">
+          <button class="btn btn-gold btn-sm" onclick="markOrderFulfilled('${o.id}','#${o.order_number}')"><i class="ti ti-truck"></i> Segna spedito</button>
+          <button class="btn btn-outline btn-sm" onclick="scalaStockDaOrdine(${JSON.stringify(o.line_items).replace(/"/g,'&quot;')}, '#${o.order_number}')"><i class="ti ti-minus"></i> Scala scorte</button>
+        </div>` : ''}
+      </div>`;
+    }).join('');
+  } catch(e) {
+    el.innerHTML = `<div class="alert alert-danger">Errore: ${e.message}</div>`;
+  }
+}
+
+async function markOrderFulfilled(orderId, orderNum) {
+  try {
+    await shopifyCall('update_order', { order_id: orderId, fulfillment_status: 'fulfilled' });
+    toast(`Ordine ${orderNum} segnato come spedito!`);
+    await logActivity(`Ordine Shopify ${orderNum} segnato spedito`, 'shopify');
+    loadShopifyOrders();
+  } catch(e) {
+    toast('Errore: ' + e.message, 'danger');
+  }
+}
+
+async function scalaStockDaOrdine(lineItems, orderNum) {
+  if (!confirm(`Scala le scorte nel gestionale per l'ordine ${orderNum}?`)) return;
+  let scalati = 0, nonTrovati = [];
+  for (const item of lineItems) {
+    // Cerca per nome prodotto (match parziale)
+    const p = allProducts.find(x =>
+      x.name.toLowerCase().includes(item.name.toLowerCase().split(' ')[0]) ||
+      item.name.toLowerCase().includes(x.name.toLowerCase().split(' ')[0])
+    );
+    if (p && p.qty >= item.quantity) {
+      const newQty = p.qty - item.quantity;
+      await sb.from('products').update({ qty: newQty, sold: (p.sold||0)+item.quantity }).eq('id', p.id);
+      const idx = allProducts.findIndex(x=>x.id===p.id);
+      if (idx>=0) { allProducts[idx].qty=newQty; allProducts[idx].sold=(p.sold||0)+item.quantity; }
+      scalati++;
+    } else {
+      nonTrovati.push(item.name);
+    }
+  }
+  await logActivity(`Scorte scalate da ordine Shopify ${orderNum}: ${scalati} prodotti`, 'shopify');
+  if (nonTrovati.length) {
+    toast(`Scalati ${scalati} prodotti. Non trovati: ${nonTrovati.join(', ')}`, 'warning');
+  } else {
+    toast(`Scorte aggiornate per ${scalati} prodotti!`);
+  }
+}
+
+// ── PRODOTTI ──
+async function loadShopifyProducts() {
+  const el = document.getElementById('shopify-products-list');
+  el.innerHTML = '<div style="color:var(--text3);font-size:13px;text-align:center;padding:20px;">Caricamento...</div>';
+  try {
+    const data = await shopifyCall('get_products');
+    shopifyProducts = data.products || [];
+    if (!shopifyProducts.length) {
+      el.innerHTML = '<div style="color:var(--text3);font-size:13px;text-align:center;padding:20px;">Nessun prodotto su Shopify.</div>';
+      return;
+    }
+    // Carica inventory levels
+    const inventoryIds = shopifyProducts.flatMap(p => p.variants.map(v => v.inventory_item_id)).filter(Boolean);
+    let invMap = {};
+    if (inventoryIds.length) {
+      try {
+        const invData = await shopifyCall('get_inventory', { inventory_item_ids: inventoryIds.slice(0,50) });
+        (invData.inventory_levels||[]).forEach(l => { invMap[l.inventory_item_id] = l.available; });
+      } catch(e) {}
+    }
+    el.innerHTML = `<div class="tbl-wrap"><table>
+      <thead><tr><th>Prodotto</th><th>Varianti</th><th>Prezzo</th><th>Scorta online</th><th>Stato</th></tr></thead>
+      <tbody>` + shopifyProducts.map(p => {
+        const variant = p.variants[0];
+        const stock = invMap[variant?.inventory_item_id] ?? '—';
+        const imgSrc = p.images?.[0]?.src;
+        return `<tr>
+          <td>
+            <div style="display:flex;align-items:center;gap:10px;">
+              ${imgSrc ? `<img src="${imgSrc}" class="shopify-prod-img" alt="">` : '<div class="shopify-prod-img"></div>'}
+              <div><div class="pname">${p.title}</div><div class="pbrand" style="font-size:10px;color:var(--text3);">#${p.id}</div></div>
+            </div>
+          </td>
+          <td style="font-size:12px;">${p.variants.length}</td>
+          <td style="font-weight:500;">€${parseFloat(variant?.price||0).toFixed(2)}</td>
+          <td><span class="badge ${stock===0?'badge-danger':stock>3?'badge-ok':'badge-warn'}">${stock} pz</span></td>
+          <td><span class="badge ${p.status==='active'?'badge-ok':'badge-warn'}">${p.status==='active'?'Attivo':'Bozza'}</span></td>
+        </tr>`;
+      }).join('') + '</tbody></table></div>';
+  } catch(e) {
+    el.innerHTML = `<div class="alert alert-danger">Errore: ${e.message}</div>`;
+  }
+}
+
+// ── SINCRONIZZAZIONE ──
+async function loadProductLinkList() {
+  await loadShopifyLinks();
+  const el = document.getElementById('product-link-list');
+  if (!allProducts.length) {
+    el.innerHTML = '<div style="color:var(--text3);font-size:12px;">Carica prima il magazzino.</div>';
+    return;
+  }
+  // Carica prodotti Shopify se non ancora caricati
+  if (!shopifyProducts.length) {
+    try {
+      const data = await shopifyCall('get_products');
+      shopifyProducts = data.products || [];
+    } catch(e) {
+      el.innerHTML = `<div class="alert alert-danger">Errore caricamento Shopify: ${e.message}</div>`;
+      return;
+    }
+  }
+  const shopifyOptions = `<option value="">— Nessun collegamento —</option>` +
+    shopifyProducts.map(p => `<option value="${p.id}|${p.variants[0]?.id}|${p.variants[0]?.inventory_item_id}">${p.title}</option>`).join('');
+  el.innerHTML = allProducts.map(p => {
+    const link = shopifyProductLinks[p.id];
+    const selectedVal = link ? `${link.shopify_product_id}|${link.variant_id}|${link.inventory_item_id}` : '';
+    return `<div class="link-row">
+      <div style="flex:1;min-width:120px;">
+        <div style="font-size:13px;font-weight:500;">${p.name}</div>
+        <div style="font-size:11px;color:var(--text2);">${p.brand||''} · stock: ${p.qty}</div>
+      </div>
+      <i class="ti ti-link" style="color:var(--gold-border);font-size:16px;"></i>
+      <select style="flex:1;min-width:150px;padding:6px 8px;border-radius:var(--r);border:1px solid var(--gold-border);background:var(--bg3);font-size:11px;font-family:'DM Sans',sans-serif;"
+        id="link-sel-${p.id}" onchange="saveProductLink(${p.id}, this.value)">
+        ${shopifyOptions}
+      </select>
+    </div>`;
+  }).join('');
+  // Imposta valori selezionati
+  allProducts.forEach(p => {
+    const link = shopifyProductLinks[p.id];
+    if (link) {
+      const sel = document.getElementById('link-sel-' + p.id);
+      if (sel) sel.value = `${link.shopify_product_id}|${link.variant_id}|${link.inventory_item_id}`;
+    }
+  });
+}
+
+async function saveProductLink(gestionale_id, val) {
+  if (!val) {
+    await sb.from('shopify_links').delete().eq('gestionale_id', gestionale_id);
+    delete shopifyProductLinks[gestionale_id];
+    toast('Collegamento rimosso');
+    return;
+  }
+  const [shopify_product_id, variant_id, inventory_item_id] = val.split('|');
+  await sb.from('shopify_links').upsert({
+    gestionale_id, shopify_product_id, variant_id, inventory_item_id
+  }, { onConflict: 'gestionale_id' });
+  shopifyProductLinks[gestionale_id] = { shopify_product_id, variant_id, inventory_item_id };
+  toast('Collegamento salvato!');
+}
+
+async function syncStockToShopify() {
+  const el = document.getElementById('sync-match-list');
+  if (!shopifyLocation) {
+    try {
+      const locData = await shopifyCall('get_locations');
+      shopifyLocation = locData.locations?.[0]?.id;
+    } catch(e) {
+      toast('Errore lettura location Shopify', 'danger');
+      return;
+    }
+  }
+  const linked = allProducts.filter(p => shopifyProductLinks[p.id]);
+  if (!linked.length) {
+    toast('Nessun prodotto collegato a Shopify', 'warning');
+    return;
+  }
+  if (!confirm(`Sincronizzi le scorte di ${linked.length} prodotti su Shopify?`)) return;
+  let ok = 0, err = 0;
+  el.innerHTML = '';
+  for (const p of linked) {
+    const link = shopifyProductLinks[p.id];
+    try {
+      await shopifyCall('update_inventory', {
+        inventory_item_id: parseInt(link.inventory_item_id),
+        location_id: shopifyLocation,
+        available: p.qty
+      });
+      el.innerHTML += `<div class="sync-log-item ok">✓ ${p.name}: ${p.qty} pz → Shopify</div>`;
+      ok++;
+    } catch(e) {
+      el.innerHTML += `<div class="sync-log-item err">✗ ${p.name}: ${e.message}</div>`;
+      err++;
+    }
+  }
+  await logActivity(`Sync scorte Shopify: ${ok} ok, ${err} errori`, 'shopify');
+  toast(`Sincronizzazione completata: ${ok} aggiornati${err?' · '+err+' errori':''}`, err?'warning':'success');
+}
+
+async function importShopifyOrders() {
+  const logEl = document.getElementById('sync-import-log');
+  logEl.innerHTML = '<div style="color:var(--text2);">Importazione in corso...</div>';
+  try {
+    const data = await shopifyCall('get_orders', { status: 'open' });
+    const orders = (data.orders || []).filter(o => o.financial_status === 'paid' && !o.fulfillment_status);
+    if (!orders.length) {
+      logEl.innerHTML = '<div style="color:var(--text3);">Nessun ordine pagato da importare.</div>';
+      return;
+    }
+    let log = '';
+    for (const o of orders) {
+      // Controlla se già importato
+      const { data: existing } = await sb.from('sales').select('id').eq('channel','online').ilike('product_name', '%#' + o.order_number + '%').single().catch(()=>({data:null}));
+      if (existing) { log += `<div class="sync-log-item warn">~ #${o.order_number} già importato</div>`; continue; }
+      for (const item of o.line_items) {
+        await sb.from('sales').insert({
+          product_name: item.name + ' [Shopify #' + o.order_number + ']',
+          brand: '',
+          qty: item.quantity,
+          price: parseFloat(item.price),
+          total: parseFloat(item.price) * item.quantity,
+          channel: 'online',
+          user_id: currentUser.id,
+          user_name: 'Shopify'
+        });
+      }
+      log += `<div class="sync-log-item ok">✓ Ordine #${o.order_number} importato (${o.line_items.length} prodotti)</div>`;
+    }
+    logEl.innerHTML = log;
+    await logActivity(`Importati ${orders.length} ordini Shopify`, 'shopify');
+    toast(`${orders.length} ordini importati!`);
+  } catch(e) {
+    logEl.innerHTML = `<div class="sync-log-item err">Errore: ${e.message}</div>`;
+    toast('Errore importazione: ' + e.message, 'danger');
+  }
+}
+
+// ── POPUP CONFERMA SHOPIFY (chiamato da updateStock e confirmSale) ──
+async function askShopifySync(productId, newQty, context) {
+  const link = shopifyProductLinks[productId];
+  if (!link) return; // non collegato, skip
+  const proceed = confirm(`Aggiornare anche la scorta su Shopify (${newQty} pz)?`);
+  if (!proceed) return;
+  if (!shopifyLocation) {
+    try {
+      const locData = await shopifyCall('get_locations');
+      shopifyLocation = locData.locations?.[0]?.id;
+    } catch(e) { toast('Errore location Shopify', 'warning'); return; }
+  }
+  try {
+    await shopifyCall('update_inventory', {
+      inventory_item_id: parseInt(link.inventory_item_id),
+      location_id: shopifyLocation,
+      available: newQty
+    });
+    toast('Scorta aggiornata anche su Shopify!');
+    await logActivity(`Sync Shopify da ${context}: ${newQty} pz`, 'shopify');
+  } catch(e) {
+    toast('Errore sync Shopify: ' + e.message, 'warning');
+  }
 }
 
 // ══════════════════════════════════════════════════════════
