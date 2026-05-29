@@ -19,7 +19,8 @@
   --shadow:0 2px 16px rgba(0,0,0,.08);--shadow-lg:0 8px 40px rgba(0,0,0,.14);
 }
 *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent;}
-body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min-height:100vh;overflow-x:hidden;position:relative;width:100%;}
+html{overflow-x:hidden;max-width:100vw;}
+body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min-height:100vh;overflow-x:hidden;position:relative;width:100%;max-width:100vw;}
 
 /* ═══ LOGIN PAGE ═══ */
 #login-page{display:flex;align-items:center;justify-content:center;
@@ -161,7 +162,17 @@ body.sb-col .sb-footer{opacity:0;}
   transition:margin-left .25s ease;
 }
 body.sb-col .main{margin-left:var(--sidebar-col);}
-@media(max-width:768px){.main{margin-left:0!important;padding-bottom:70px;overflow-x:hidden;width:100%;max-width:100vw;}}
+@media(max-width:768px){
+  .main{margin-left:0!important;padding-bottom:70px;overflow-x:hidden;width:100%;max-width:100vw;}
+  .app-body{overflow-x:hidden;max-width:100vw;}
+  .tbl-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch;max-width:calc(100vw - 24px);}
+  .card{max-width:100%;overflow:hidden;}
+  .kpi-grid{max-width:100%;}
+  .two-col,.three-col{max-width:100%;}
+  .form-row{max-width:100%;}
+  .modal{max-width:calc(100vw - 32px);}
+  section.page{max-width:100%;overflow-x:hidden;}
+}
 
 /* PAGES */
 .page{display:none;padding:24px;}
@@ -357,6 +368,24 @@ tr:hover td{background:var(--gold-glow);}
 /* pulse */
 .pulse{animation:pulse 2s infinite;}
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
+
+/* ═══ ETICHETTE / QR CODE ═══ */
+.label-preview{
+  width:150px;height:100px;border:1px dashed var(--gold-border);
+  border-radius:6px;padding:6px;display:flex;flex-direction:column;
+  align-items:center;justify-content:center;gap:3px;background:#fff;
+  margin:0 auto 8px;
+}
+.label-preview .lp-name{font-size:7px;font-weight:600;text-align:center;color:var(--text);line-height:1.2;max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.label-preview .lp-sku{font-size:6px;color:var(--text2);letter-spacing:.5px;}
+.label-preview .lp-price{font-size:9px;font-family:'Cormorant Garamond',serif;color:var(--gold);font-weight:600;}
+.label-preview #lp-qr canvas,.label-preview #lp-qr img{width:50px!important;height:50px!important;}
+
+@media print {
+  body * { visibility: hidden !important; }
+  #print-labels-area, #print-labels-area * { visibility: visible !important; }
+  #print-labels-area { position: fixed; left: 0; top: 0; width: 100%; }
+}
 </style>
 </head>
 <body>
@@ -450,6 +479,9 @@ tr:hover td{background:var(--gold-glow);}
         </button>
         <button class="nav-item capo-only" id="nav-turni" onclick="goTo('turni')" style="display:none">
           <span class="ni-icon">🗓️</span><span class="nav-label">Turni</span>
+        </button>
+        <button class="nav-item dipendente-only" id="nav-turni-dip" onclick="goTo('turni-dip')" style="display:none">
+          <span class="ni-icon">🗓️</span><span class="nav-label">I miei turni</span>
         </button>
         <button class="nav-item capo-only" id="nav-reset-requests" onclick="goTo('reset-requests')" style="display:none">
           <span class="ni-icon">🔑</span><span class="nav-label">Richieste password</span>
@@ -629,7 +661,7 @@ tr:hover td{background:var(--gold-glow);}
   <div class="card"><div class="scroll-area" id="registro-list" style="max-height:600px;"><div style="color:var(--text3);font-size:12px;">Caricamento...</div></div></div>
 </section>
 
-<!-- ══ PAGE: TURNI (solo capo) ══ -->
+<!-- ══ PAGE: TURNI (capo/editor) ══ -->
 <section class="page" id="page-turni">
   <div class="sec-header">
     <span class="sec-title">🗓️ Turni</span>
@@ -660,20 +692,72 @@ tr:hover td{background:var(--gold-glow);}
   </div>
 </section>
 
-<!-- ══ PAGE: PRESENZE ══ -->
+<!-- ══ PAGE: TURNI DIPENDENTE ══ -->
+<section class="page" id="page-turni-dip">
+  <div class="sec-header">
+    <span class="sec-title">🗓️ I miei turni</span>
+    <button class="btn btn-gold btn-sm" onclick="openTurnoDipModal()"><i class="ti ti-plus"></i> Aggiungi turno</button>
+  </div>
+  <div class="two-col">
+    <div class="card">
+      <div class="cal-header">
+        <button class="btn btn-outline btn-sm" onclick="calDipPrev()"><i class="ti ti-chevron-left"></i></button>
+        <span class="cal-title" id="cal-dip-month-title">—</span>
+        <button class="btn btn-outline btn-sm" onclick="calDipNext()"><i class="ti ti-chevron-right"></i></button>
+      </div>
+      <div class="cal-grid" id="cal-dip-grid"></div>
+    </div>
+    <div>
+      <div class="card" style="margin-bottom:12px;">
+        <div class="card-title"><i class="ti ti-clock"></i> Ore questo mese</div>
+        <div id="turni-dip-summary"></div>
+      </div>
+      <div class="card">
+        <div class="card-title"><i class="ti ti-list"></i> Turni del giorno</div>
+        <div id="turni-dip-day-detail"><div style="color:var(--text3);font-size:12px;">Seleziona un giorno</div></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ══ PAGE: PRESENZE (dipendente) ══ -->
 <section class="page" id="page-presenze">
-  <div class="sec-header"><span class="sec-title">⏱️ Presenze</span></div>
-  <div class="presence-card">
-    <div class="presence-time" id="pres-clock">--:--</div>
-    <div class="presence-date" id="pres-date">—</div>
-    <div class="presence-status"><div class="status-dot" id="pres-dot"></div><span id="pres-status-txt">Non timbrато</span></div>
+  <div class="sec-header">
+    <span class="sec-title">⏱️ Presenze</span>
+    <div style="display:flex;gap:8px;align-items:center;">
+      <select id="pres-month-sel" style="padding:7px 10px;border-radius:var(--r);border:1px solid var(--gold-border);background:var(--bg3);font-size:12px;font-family:'DM Sans',sans-serif;" onchange="loadPresenze()"></select>
+      <button class="btn btn-outline btn-sm" onclick="exportPresenzePDF()"><i class="ti ti-download"></i> PDF</button>
+    </div>
   </div>
-  <div style="display:flex;gap:10px;margin-bottom:16px;">
-    <button class="btn btn-success" style="flex:1;padding:14px;font-size:14px;" id="btn-entrata" onclick="timbraEntrata()"><i class="ti ti-login"></i> Timbra entrata</button>
-    <button class="btn btn-danger" style="flex:1;padding:14px;font-size:14px;" id="btn-uscita" onclick="timbraUscita()" disabled><i class="ti ti-logout"></i> Timbra uscita</button>
+
+  <!-- KPI mese -->
+  <div class="kpi-grid" style="grid-template-columns:repeat(3,1fr);margin-bottom:16px;">
+    <div class="kpi success"><div class="kpi-label">Giorni lavorati</div><div class="kpi-val" id="pres-kpi-giorni">—</div><div class="kpi-sub">questo mese</div></div>
+    <div class="kpi"><div class="kpi-label">Ore totali</div><div class="kpi-val" id="pres-kpi-ore">—</div><div class="kpi-sub">ore lavorate</div></div>
+    <div class="kpi danger"><div class="kpi-label">Assenze / Ritardi</div><div class="kpi-val" id="pres-kpi-assenze">—</div><div class="kpi-sub">giorni turno mancato</div></div>
   </div>
-  <div class="card"><div class="card-title"><i class="ti ti-calendar"></i> Storico presenze</div>
-    <div class="tbl-wrap" style="border:none;box-shadow:none;"><table><thead><tr><th>Data</th><th>Entrata</th><th>Uscita</th><th>Ore</th><th>Note</th></tr></thead><tbody id="presenze-tbody"></tbody></table></div>
+
+  <!-- Calendario presenze -->
+  <div class="card" style="margin-bottom:16px;">
+    <div class="card-title"><i class="ti ti-calendar"></i> Calendario presenze</div>
+    <div class="cal-grid" id="cal-pres-grid" style="margin-top:4px;"></div>
+    <div style="display:flex;gap:16px;margin-top:12px;flex-wrap:wrap;">
+      <div style="display:flex;align-items:center;gap:6px;font-size:11px;color:var(--text2);"><div style="width:12px;height:12px;border-radius:3px;background:rgba(39,174,96,.3);border:1px solid var(--success);"></div> Lavorato</div>
+      <div style="display:flex;align-items:center;gap:6px;font-size:11px;color:var(--text2);"><div style="width:12px;height:12px;border-radius:3px;background:rgba(192,57,43,.2);border:1px solid var(--danger);"></div> Assenza</div>
+      <div style="display:flex;align-items:center;gap:6px;font-size:11px;color:var(--text2);"><div style="width:12px;height:12px;border-radius:3px;background:rgba(230,126,34,.2);border:1px solid var(--warning);"></div> Ritardo</div>
+      <div style="display:flex;align-items:center;gap:6px;font-size:11px;color:var(--text2);"><div style="width:12px;height:12px;border-radius:3px;background:var(--gold-glow);border:1px solid var(--gold-border);"></div> Turno programmato</div>
+    </div>
+  </div>
+
+  <!-- Dettaglio tabella -->
+  <div class="card">
+    <div class="card-title"><i class="ti ti-list"></i> Dettaglio giornaliero</div>
+    <div class="tbl-wrap" style="border:none;box-shadow:none;">
+      <table>
+        <thead><tr><th>Data</th><th>Turno previsto</th><th>Entrata</th><th>Uscita</th><th>Ore</th><th>Stato</th></tr></thead>
+        <tbody id="presenze-detail-tbody"></tbody>
+      </table>
+    </div>
   </div>
 </section>
 
@@ -790,6 +874,30 @@ tr:hover td{background:var(--gold-glow);}
   <button class="btn btn-gold" style="width:100%;margin-top:4px;" onclick="saveTurno()"><i class="ti ti-calendar-plus"></i> Salva turno</button>
 </div></div>
 
+<!-- MODAL TURNO DIPENDENTE -->
+<div class="modal-bg" id="modal-new-turno-dip"><div class="modal">
+  <button class="modal-close" onclick="closeModal('modal-new-turno-dip')"><i class="ti ti-x"></i></button>
+  <div class="modal-title">Aggiungi turno</div>
+  <div class="modal-sub">Registra il tuo turno di lavoro</div>
+  <div class="form-g"><label>Data</label><input type="date" id="td-date"></div>
+  <div style="margin-bottom:12px;">
+    <label style="display:block;font-size:11px;letter-spacing:.8px;text-transform:uppercase;color:var(--text2);margin-bottom:8px;">Turni predefiniti</label>
+    <div class="preset-wrap">
+      <button class="preset-btn" onclick="applyPresetDip('09:00','13:00')"><span class="pt-name">Mattina</span><span class="pt-hours">09:00–13:00 · 4h</span></button>
+      <button class="preset-btn" onclick="applyPresetDip('15:00','19:30')"><span class="pt-name">Pomeriggio</span><span class="pt-hours">15:00–19:30 · 4.5h</span></button>
+      <button class="preset-btn" onclick="applyPresetDip('09:00','19:30')"><span class="pt-name">Giornata intera</span><span class="pt-hours">09:00–19:30 · 10.5h</span></button>
+      <button class="preset-btn" onclick="applyPresetDip('09:00','13:30')"><span class="pt-name">Mattina lunga</span><span class="pt-hours">09:00–13:30 · 4.5h</span></button>
+      <button class="preset-btn" onclick="applyPresetDip('16:00','20:00')"><span class="pt-name">Tardo pom.</span><span class="pt-hours">16:00–20:00 · 4h</span></button>
+    </div>
+  </div>
+  <div class="form-row">
+    <div class="form-g"><label>Ora inizio</label><input type="time" id="td-start"></div>
+    <div class="form-g"><label>Ora fine</label><input type="time" id="td-end"></div>
+  </div>
+  <div class="form-g"><label>Note</label><input type="text" id="td-note" placeholder="Opzionale"></div>
+  <button class="btn btn-gold" style="width:100%;margin-top:4px;" onclick="saveTurnoDip()"><i class="ti ti-calendar-plus"></i> Salva turno</button>
+</div></div>
+
 <div class="modal-bg" id="modal-new-user"><div class="modal">
   <button class="modal-close" onclick="closeModal('modal-new-user')"><i class="ti ti-x"></i></button>
   <div class="modal-title">Nuovo utente</div><div class="modal-sub">Crea account per un membro del team</div>
@@ -809,6 +917,31 @@ tr:hover td{background:var(--gold-glow);}
   <button class="btn btn-gold" style="width:100%;margin-top:4px;" onclick="adminChangePwd()"><i class="ti ti-key"></i> Aggiorna password</button>
 </div></div>
 
+<!-- MODAL ETICHETTA QR -->
+<div class="modal-bg" id="modal-label"><div class="modal" style="max-width:380px;">
+  <button class="modal-close" onclick="closeModal('modal-label')"><i class="ti ti-x"></i></button>
+  <div class="modal-title">🏷️ Etichetta prodotto</div>
+  <div class="modal-sub" id="label-modal-sub">—</div>
+  <div class="label-preview" id="label-preview-box">
+    <div id="lp-qr" style="width:50px;height:50px;"></div>
+    <div class="lp-name" id="lp-name-txt">—</div>
+    <div class="lp-sku" id="lp-sku-txt">—</div>
+    <div class="lp-price" id="lp-price-txt">—</div>
+  </div>
+  <div class="form-g" style="margin-bottom:14px;">
+    <label>Numero di copie</label>
+    <div style="display:flex;align-items:center;gap:8px;">
+      <button class="qty-btn" onclick="changeLabelQty(-1)" style="width:36px;height:36px;">−</button>
+      <div class="qty-disp" id="label-qty-disp" style="flex:1;text-align:center;padding:6px;font-size:22px;">1</div>
+      <button class="qty-btn" onclick="changeLabelQty(1)" style="width:36px;height:36px;">+</button>
+    </div>
+  </div>
+  <button class="btn btn-gold" style="width:100%;" onclick="printLabels()"><i class="ti ti-printer"></i> Stampa etichette</button>
+</div></div>
+
+<!-- AREA DI STAMPA ETICHETTE (nascosta, solo per @media print) -->
+<div id="print-labels-area" style="display:none;"></div>
+
 <!-- SALE FLASH -->
 <div id="sale-flash" style="position:fixed;inset:0;background:rgba(0,0,0,.35);display:flex;align-items:center;justify-content:center;z-index:400;opacity:0;pointer-events:none;transition:opacity .2s;">
   <div style="background:#fff;border:1px solid rgba(39,174,96,.4);border-radius:var(--r-lg);padding:28px 36px;text-align:center;min-width:240px;box-shadow:var(--shadow-lg);">
@@ -822,6 +955,7 @@ tr:hover td{background:var(--gold-glow);}
 <div class="toast" id="toast"><i class="ti ti-check" id="toast-icon"></i><span id="toast-msg">—</span></div>
 
 <script src="https://cdn.jsdelivr.net/npm/@zxing/library@0.18.6/umd/index.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"></script>
 <script>
 // ══════════════════════════════════════════════════════════
 // SUPABASE INIT
@@ -851,7 +985,6 @@ let calYear = new Date().getFullYear(), calMonth = new Date().getMonth();
 let calSelected = null;
 let allTurni = [];
 let exportFmt = 'csv';
-let presenzaOggi = null;
 
 // ══════════════════════════════════════════════════════════
 // AUTH
@@ -918,8 +1051,6 @@ async function initApp(user) {
     console.log('calling goTo dashboard');
     goTo('dashboard');
     checkResetRequests();
-    setInterval(updatePresenzaClock, 1000);
-    updatePresenzaClock();
     console.log('initApp complete');
   } catch(e) {
     console.error('initApp ERROR:', e);
@@ -929,15 +1060,21 @@ async function initApp(user) {
 
 function setupRoleUI() {
   const isCapo = currentProfile.ruolo === 'capo' || currentProfile.ruolo === 'editor';
-  // Editor ha accesso identico al capo
+  const isDip = currentProfile.ruolo === 'dipendente';
   document.querySelectorAll('.capo-only').forEach(el => {
     el.style.display = isCapo ? 'flex' : 'none';
   });
   document.getElementById('nav-section-capo').style.display = isCapo ? 'block' : 'none';
   document.getElementById('reset-request-card').style.display = isCapo ? 'none' : 'block';
-  // Capo e Editor non vedono presenze (hanno turni)
+  // Turni capo
   if (isCapo) {
     document.getElementById('nav-presenze').style.display = 'none';
+    if (document.getElementById('nav-turni-dip')) document.getElementById('nav-turni-dip').style.display = 'none';
+  }
+  // Turni dipendente
+  if (isDip) {
+    const navTurniDip = document.getElementById('nav-turni-dip');
+    if (navTurniDip) navTurniDip.style.display = 'flex';
   }
 }
 
@@ -959,7 +1096,7 @@ const PAGE_TITLES = {
   dashboard:'Dashboard', magazzino:'Magazzino', vendita:'Vendi — Scanner',
   ordini:'Ordini in arrivo', aggiungi:'Aggiungi prodotto', storico:'Storico vendite',
   export:'Esporta dati', registro:'Registro attività', turni:'Turni',
-  presenze:'Presenze', profilo:'Profilo', utenti:'Utenti',
+  'turni-dip':'I miei turni', presenze:'Presenze', profilo:'Profilo', utenti:'Utenti',
   'reset-requests':'Richieste password'
 };
 
@@ -985,6 +1122,7 @@ function goTo(id) {
   else if (id === 'ordini') loadOrdini();
   else if (id === 'registro') loadRegistro();
   else if (id === 'turni') { loadTurni(); renderCalendar(); }
+  else if (id === 'turni-dip') { loadTurniDip(); renderCalendarDip(); }
   else if (id === 'presenze') loadPresenze();
   else if (id === 'profilo') loadProfilo();
   else if (id === 'utenti') loadUtenti();
@@ -1128,6 +1266,7 @@ function filterProducts() {
       <td><div style="display:flex;align-items:center;gap:7px;"><span>${p.qty}</span><div class="sbar"><div class="sbar-fill" style="width:${pct}%;background:${color};"></div></div></div></td>
       <td><span class="badge ${badgeCls}">${badgeTxt}</span></td>
       <td><div style="display:flex;gap:4px;">
+        <button class="btn btn-sm btn-outline" title="Stampa etichetta" onclick="openLabelModal(${p.id})"><i class="ti ti-qrcode"></i></button>
         <button class="btn btn-sm btn-outline" onclick="openEditStock(${p.id})"><i class="ti ti-edit"></i></button>
         <button class="btn btn-sm btn-danger" onclick="deleteProduct(${p.id})"><i class="ti ti-trash"></i></button>
       </div></td>
@@ -1215,7 +1354,7 @@ function setChannel(ch, el) {
   el.className = 'btn btn-gold';
 }
 
-async function lookupBarcode(val) {
+async function _lookupBarcodeOriginal(val) {
   if (val.trim().length < 5) { hideScanResult(); return; }
   const p = allProducts.find(x => x.barcode === val.trim());
   if (!p) {
@@ -1569,74 +1708,305 @@ async function exportTurniPDF() {
 }
 
 // ══════════════════════════════════════════════════════════
-// PRESENZE
+// TURNI DIPENDENTE
 // ══════════════════════════════════════════════════════════
-function updatePresenzaClock() {
-  const now = new Date();
-  const el = document.getElementById('pres-clock');
-  if (el) el.textContent = now.toLocaleTimeString('it-IT',{hour:'2-digit',minute:'2-digit',second:'2-digit'});
-  const de = document.getElementById('pres-date');
-  if (de) de.textContent = now.toLocaleDateString('it-IT',{weekday:'long',day:'numeric',month:'long',year:'numeric'});
+let calDipYear = new Date().getFullYear(), calDipMonth = new Date().getMonth();
+let calDipSelected = null;
+let allTurniDip = [];
+
+async function loadTurniDip() {
+  const { data } = await sb.from('turni').select('*').eq('user_id', currentUser.id);
+  allTurniDip = data || [];
+  renderTurniDipSummary();
+  renderCalendarDip();
 }
 
-async function loadPresenze() {
-  const today = new Date().toISOString().slice(0,10);
-  const { data: todayPres } = await sb.from('presenze').select('*').eq('user_id',currentUser.id).eq('data',today).single().catch(()=>({data:null}));
-  presenzaOggi = todayPres;
-  updatePresenzaUI();
-  const { data: storico } = await sb.from('presenze').select('*').eq('user_id',currentUser.id).order('data',{ascending:false}).limit(30);
-  const tb = document.getElementById('presenze-tbody');
-  if (!storico?.length) { tb.innerHTML='<tr><td colspan="5" style="text-align:center;padding:12px;color:var(--text3);">Nessuna presenza registrata.</td></tr>'; return; }
-  tb.innerHTML = storico.map(p=>`<tr>
-    <td>${new Date(p.data+'T12:00:00').toLocaleDateString('it-IT',{weekday:'short',day:'numeric',month:'short'})}</td>
-    <td>${p.ora_entrata||'—'}</td>
-    <td>${p.ora_uscita||'—'}</td>
-    <td style="font-weight:500;color:var(--gold);">${p.ore_totali?p.ore_totali+'h':'—'}</td>
-    <td style="font-size:11px;color:var(--text2);">${p.note||''}</td>
-  </tr>`).join('');
-}
-
-function updatePresenzaUI() {
-  const dot = document.getElementById('pres-dot');
-  const txt = document.getElementById('pres-status-txt');
-  const btnE = document.getElementById('btn-entrata');
-  const btnU = document.getElementById('btn-uscita');
-  if (!presenzaOggi) {
-    dot.className='status-dot'; txt.textContent='Non ancora timbrato';
-    btnE.disabled=false; btnU.disabled=true;
-  } else if (!presenzaOggi.ora_uscita) {
-    dot.className='status-dot in'; txt.textContent='In servizio dalle '+presenzaOggi.ora_entrata;
-    btnE.disabled=true; btnU.disabled=false;
-  } else {
-    dot.className='status-dot out'; txt.textContent='Uscito alle '+presenzaOggi.ora_uscita+' ('+presenzaOggi.ore_totali+'h)';
-    btnE.disabled=true; btnU.disabled=true;
+function renderCalendarDip() {
+  const grid = document.getElementById('cal-dip-grid');
+  const title = document.getElementById('cal-dip-month-title');
+  if (!grid || !title) return;
+  const days = ['Lun','Mar','Mer','Gio','Ven','Sab','Dom'];
+  title.textContent = new Date(calDipYear, calDipMonth, 1).toLocaleDateString('it-IT', {month:'long', year:'numeric'});
+  grid.innerHTML = days.map(d => `<div class="cal-day-hdr">${d}</div>`).join('');
+  const firstDay = new Date(calDipYear, calDipMonth, 1);
+  const startDow = (firstDay.getDay() + 6) % 7;
+  const daysInMonth = new Date(calDipYear, calDipMonth + 1, 0).getDate();
+  const today = new Date().toISOString().slice(0, 10);
+  for (let i = 0; i < startDow; i++) grid.innerHTML += `<div class="cal-day other-month"></div>`;
+  for (let d = 1; d <= daysInMonth; d++) {
+    const dateStr = `${calDipYear}-${String(calDipMonth+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+    const hasTurno = allTurniDip.some(t => t.data === dateStr);
+    const isToday = dateStr === today;
+    const isSel = dateStr === calDipSelected;
+    grid.innerHTML += `<div class="cal-day ${isToday?'today':''} ${hasTurno?'has-turno':''} ${isSel?'selected':''}" onclick="selectCalDipDay('${dateStr}')">${d}</div>`;
   }
 }
 
-async function timbraEntrata() {
-  const now = new Date();
-  const today = now.toISOString().slice(0,10);
-  const ora = now.toTimeString().slice(0,5);
-  const { data, error } = await sb.from('presenze').insert({user_id:currentUser.id,data:today,ora_entrata:ora}).select().single();
-  if (error) { toast('Errore timbratura: '+error.message,'danger'); return; }
-  presenzaOggi = data;
-  updatePresenzaUI();
-  await logActivity(`Entrata timbrata: ${ora}`, 'presenze');
-  toast('Entrata registrata alle '+ora+'!');
+function selectCalDipDay(date) {
+  calDipSelected = date;
+  renderCalendarDip();
+  const dayTurni = allTurniDip.filter(t => t.data === date);
+  const el = document.getElementById('turni-dip-day-detail');
+  if (!dayTurni.length) {
+    el.innerHTML = '<div style="color:var(--text3);font-size:12px;">Nessun turno per questo giorno.</div>';
+    return;
+  }
+  el.innerHTML = dayTurni.map(t => `
+    <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid rgba(184,134,42,.08);">
+      <div>
+        <div style="font-size:13px;font-weight:500;">${t.ora_inizio}–${t.ora_fine} · <span style="color:var(--gold);">${t.ore_previste}h</span></div>
+        <div style="font-size:11px;color:var(--text2);">${t.note||''}</div>
+      </div>
+      <button class="btn btn-sm btn-danger" onclick="deleteTurnoDip(${t.id})"><i class="ti ti-trash"></i></button>
+    </div>`).join('');
 }
 
-async function timbraUscita() {
-  if (!presenzaOggi) return;
+function renderTurniDipSummary() {
+  const el = document.getElementById('turni-dip-summary');
+  if (!el) return;
   const now = new Date();
-  const ora = now.toTimeString().slice(0,5);
-  const ore = calcOre(presenzaOggi.ora_entrata, ora);
-  const { data, error } = await sb.from('presenze').update({ora_uscita:ora,ore_totali:ore}).eq('id',presenzaOggi.id).select().single();
-  if (error) { toast('Errore timbratura: '+error.message,'danger'); return; }
-  presenzaOggi = data;
-  updatePresenzaUI();
-  await logActivity(`Uscita timbrata: ${ora} (${ore}h)`, 'presenze');
-  toast('Uscita registrata alle '+ora+' · '+ore+'h lavorate!');
-  loadPresenze();
+  const meseTurni = allTurniDip.filter(t => {
+    const d = new Date(t.data);
+    return d.getFullYear() === calDipYear && d.getMonth() === calDipMonth;
+  });
+  const totOre = meseTurni.reduce((a, t) => a + (t.ore_previste || 0), 0);
+  const totGiorni = meseTurni.length;
+  el.innerHTML = totGiorni === 0
+    ? '<div style="color:var(--text3);font-size:12px;">Nessun turno questo mese.</div>'
+    : `<div style="display:flex;justify-content:space-between;padding:8px 0;">
+        <span style="font-size:13px;color:var(--text2);">Turni pianificati</span>
+        <span style="font-family:'Cormorant Garamond',serif;font-size:20px;color:var(--gold);">${totGiorni}</span>
+       </div>
+       <div style="display:flex;justify-content:space-between;padding:8px 0;border-top:1px solid rgba(184,134,42,.08);">
+        <span style="font-size:13px;color:var(--text2);">Ore totali</span>
+        <span style="font-family:'Cormorant Garamond',serif;font-size:20px;color:var(--gold);">${totOre.toFixed(1)}h</span>
+       </div>`;
+}
+
+function calDipPrev() { calDipMonth--; if(calDipMonth<0){calDipMonth=11;calDipYear--;} renderCalendarDip(); renderTurniDipSummary(); }
+function calDipNext() { calDipMonth++; if(calDipMonth>11){calDipMonth=0;calDipYear++;} renderCalendarDip(); renderTurniDipSummary(); }
+
+function applyPresetDip(start, end) {
+  document.getElementById('td-start').value = start;
+  document.getElementById('td-end').value = end;
+  document.querySelectorAll('#modal-new-turno-dip .preset-btn').forEach(b => {
+    b.style.background = ''; b.style.borderColor = ''; b.style.color = '';
+  });
+  event.currentTarget.style.background = 'var(--gold-glow)';
+  event.currentTarget.style.borderColor = 'var(--gold)';
+  event.currentTarget.style.color = 'var(--gold)';
+}
+
+async function saveTurnoDip() {
+  const date = document.getElementById('td-date').value;
+  const start = document.getElementById('td-start').value;
+  const end = document.getElementById('td-end').value;
+  if (!date || !start || !end) { toast('Compila data e orari', 'warning'); return; }
+  const ore = calcOre(start, end);
+  if (ore <= 0) { toast('Orario non valido', 'warning'); return; }
+  const { error } = await sb.from('turni').insert({
+    user_id: currentUser.id,
+    data: date, ora_inizio: start, ora_fine: end,
+    ore_previste: ore,
+    note: document.getElementById('td-note').value,
+    created_at_by: currentUser.id
+  });
+  if (error) { toast('Errore: ' + error.message, 'danger'); return; }
+  toast('Turno salvato!');
+  closeModal('modal-new-turno-dip');
+  loadTurniDip();
+  // Apri modale sul giorno salvato
+  calDipSelected = date;
+  const d = new Date(date);
+  calDipYear = d.getFullYear(); calDipMonth = d.getMonth();
+}
+
+async function deleteTurnoDip(id) {
+  if (!confirm('Eliminare questo turno?')) return;
+  await sb.from('turni').delete().eq('id', id).eq('user_id', currentUser.id);
+  toast('Turno eliminato', 'warning');
+  loadTurniDip();
+}
+
+// Precompila data modale dipendente
+function openTurnoDipModal() {
+  document.getElementById('td-date').value = new Date().toISOString().split('T')[0];
+  document.getElementById('td-start').value = '';
+  document.getElementById('td-end').value = '';
+  document.getElementById('td-note').value = '';
+  openModal('modal-new-turno-dip');
+}
+
+// ══════════════════════════════════════════════════════════
+// PRESENZE — riepilogo mensile
+// ══════════════════════════════════════════════════════════
+async function loadPresenze() {
+  // Popola selettore mese
+  const sel = document.getElementById('pres-month-sel');
+  if (sel && sel.options.length === 0) {
+    const now = new Date();
+    for (let i = 0; i < 12; i++) {
+      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      const val = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
+      const lbl = d.toLocaleDateString('it-IT', {month:'long', year:'numeric'});
+      const opt = document.createElement('option');
+      opt.value = val; opt.textContent = lbl;
+      sel.appendChild(opt);
+    }
+  }
+  const selVal = sel ? sel.value : new Date().toISOString().slice(0,7);
+  const [year, month] = selVal.split('-').map(Number);
+  const firstDay = `${year}-${String(month).padStart(2,'0')}-01`;
+  const lastDay = `${year}-${String(month).padStart(2,'0')}-${new Date(year, month, 0).getDate()}`;
+
+  // Carica turni del mese
+  const { data: turniMese } = await sb.from('turni')
+    .select('*').eq('user_id', currentUser.id)
+    .gte('data', firstDay).lte('data', lastDay).order('data');
+
+  // Carica presenze del mese (timbrature — se esistono)
+  const { data: presenzeMese } = await sb.from('presenze')
+    .select('*').eq('user_id', currentUser.id)
+    .gte('data', firstDay).lte('data', lastDay).order('data');
+
+  const turniMap = {};
+  (turniMese || []).forEach(t => { turniMap[t.data] = t; });
+  const presenzeMap = {};
+  (presenzeMese || []).forEach(p => { presenzeMap[p.data] = p; });
+
+  // Calcola KPI
+  const today = new Date().toISOString().slice(0,10);
+  let giorniLavorati = 0, oreTotal = 0, assenze = 0, ritardi = 0;
+  const allDates = [...new Set([...Object.keys(turniMap), ...Object.keys(presenzeMap)])].sort();
+
+  allDates.forEach(date => {
+    if (date > today) return; // future = skip
+    const turno = turniMap[date];
+    const pres = presenzeMap[date];
+    if (pres && pres.ore_totali) {
+      giorniLavorati++;
+      oreTotal += parseFloat(pres.ore_totali) || 0;
+      // Ritardo: entrata >15min dopo inizio turno
+      if (turno && pres.ora_entrata) {
+        const turnoStart = turno.ora_inizio.split(':').map(Number);
+        const entrata = pres.ora_entrata.split(':').map(Number);
+        const diffMin = (entrata[0]*60+entrata[1]) - (turnoStart[0]*60+turnoStart[1]);
+        if (diffMin > 15) ritardi++;
+      }
+    } else if (turno && date <= today) {
+      assenze++;
+    }
+  });
+
+  document.getElementById('pres-kpi-giorni').textContent = giorniLavorati;
+  document.getElementById('pres-kpi-ore').textContent = oreTotal.toFixed(1) + 'h';
+  document.getElementById('pres-kpi-assenze').textContent = assenze + ' / ' + ritardi + '⚠';
+
+  // Renderizza calendario presenze
+  renderCalendarPresenze(year, month - 1, turniMap, presenzeMap);
+
+  // Tabella dettaglio
+  const tb = document.getElementById('presenze-detail-tbody');
+  if (!allDates.length) {
+    tb.innerHTML = '<tr><td colspan="6" style="text-align:center;padding:16px;color:var(--text3);">Nessun dato per questo mese.</td></tr>';
+    return;
+  }
+  tb.innerHTML = allDates.map(date => {
+    const turno = turniMap[date];
+    const pres = presenzeMap[date];
+    const isFuture = date > today;
+    let stato = '', statoCls = '';
+    if (isFuture && turno) { stato = 'Programmato'; statoCls = 'badge-gold'; }
+    else if (pres && pres.ore_totali) {
+      const turnoStart = turno ? turno.ora_inizio.split(':').map(Number) : null;
+      const entrata = pres.ora_entrata ? pres.ora_entrata.split(':').map(Number) : null;
+      if (turnoStart && entrata) {
+        const diffMin = (entrata[0]*60+entrata[1]) - (turnoStart[0]*60+turnoStart[1]);
+        if (diffMin > 15) { stato = '⚠ Ritardo '+diffMin+'min'; statoCls = 'badge-warn'; }
+        else { stato = '✓ Presente'; statoCls = 'badge-ok'; }
+      } else { stato = '✓ Presente'; statoCls = 'badge-ok'; }
+    } else if (turno && !isFuture) { stato = '✗ Assente'; statoCls = 'badge-danger'; }
+    else { stato = '—'; statoCls = ''; }
+    const dataFmt = new Date(date+'T12:00:00').toLocaleDateString('it-IT', {weekday:'short', day:'numeric', month:'short'});
+    const turnoPrev = turno ? `${turno.ora_inizio}–${turno.ora_fine}` : '—';
+    return `<tr>
+      <td style="font-size:12px;">${dataFmt}</td>
+      <td style="font-size:12px;color:var(--gold);">${turnoPrev}</td>
+      <td style="font-size:12px;">${pres?.ora_entrata||'—'}</td>
+      <td style="font-size:12px;">${pres?.ora_uscita||'—'}</td>
+      <td style="font-weight:500;color:var(--gold);">${pres?.ore_totali?pres.ore_totali+'h':'—'}</td>
+      <td>${stato ? `<span class="badge ${statoCls}">${stato}</span>` : '—'}</td>
+    </tr>`;
+  }).join('');
+}
+
+function renderCalendarPresenze(year, month, turniMap, presenzeMap) {
+  const grid = document.getElementById('cal-pres-grid');
+  if (!grid) return;
+  const days = ['Lun','Mar','Mer','Gio','Ven','Sab','Dom'];
+  grid.innerHTML = days.map(d => `<div class="cal-day-hdr">${d}</div>`).join('');
+  const firstDay = new Date(year, month, 1);
+  const startDow = (firstDay.getDay() + 6) % 7;
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const today = new Date().toISOString().slice(0, 10);
+  for (let i = 0; i < startDow; i++) grid.innerHTML += `<div class="cal-day other-month"></div>`;
+  for (let d = 1; d <= daysInMonth; d++) {
+    const dateStr = `${year}-${String(month+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+    const turno = turniMap[dateStr];
+    const pres = presenzeMap[dateStr];
+    const isFuture = dateStr > today;
+    const isToday = dateStr === today;
+    let bgColor = '', border = '';
+    if (turno && isFuture) { bgColor = 'var(--gold-glow)'; border = '2px solid var(--gold-border)'; }
+    else if (pres && pres.ore_totali) {
+      const turnoStart = turno ? turno.ora_inizio.split(':').map(Number) : null;
+      const entrata = pres.ora_entrata ? pres.ora_entrata.split(':').map(Number) : null;
+      if (turnoStart && entrata && (entrata[0]*60+entrata[1]) - (turnoStart[0]*60+turnoStart[1]) > 15) {
+        bgColor = 'rgba(230,126,34,.2)'; border = '1.5px solid var(--warning)';
+      } else { bgColor = 'rgba(39,174,96,.2)'; border = '1.5px solid var(--success)'; }
+    } else if (turno && !isFuture) { bgColor = 'rgba(192,57,43,.15)'; border = '1.5px solid var(--danger)'; }
+    grid.innerHTML += `<div class="cal-day ${isToday?'today':''}" style="background:${bgColor};${border?'border:'+border+';':''}">${d}</div>`;
+  }
+}
+
+async function exportPresenzePDF() {
+  const sel = document.getElementById('pres-month-sel');
+  const selVal = sel ? sel.value : new Date().toISOString().slice(0,7);
+  const [year, month] = selVal.split('-').map(Number);
+  const firstDay = `${year}-${String(month).padStart(2,'0')}-01`;
+  const lastDay = `${year}-${String(month).padStart(2,'0')}-${new Date(year, month, 0).getDate()}`;
+  const nomeMese = new Date(year, month-1, 1).toLocaleDateString('it-IT', {month:'long', year:'numeric'});
+  const nome = getDisplayName(currentProfile);
+
+  const { data: turniMese } = await sb.from('turni').select('*').eq('user_id', currentUser.id).gte('data', firstDay).lte('data', lastDay).order('data');
+  const { data: presenzeMese } = await sb.from('presenze').select('*').eq('user_id', currentUser.id).gte('data', firstDay).lte('data', lastDay).order('data');
+
+  const turniMap = {}; (turniMese||[]).forEach(t => turniMap[t.data] = t);
+  const presenzeMap = {}; (presenzeMese||[]).forEach(p => presenzeMap[p.data] = p);
+  const today = new Date().toISOString().slice(0,10);
+  const allDates = [...new Set([...Object.keys(turniMap), ...Object.keys(presenzeMap)])].sort();
+
+  let giorniLavorati = 0, oreTotal = 0, assenze = 0, ritardi = 0;
+  const rows = allDates.map(date => {
+    const turno = turniMap[date];
+    const pres = presenzeMap[date];
+    const isFuture = date > today;
+    let stato = '—';
+    if (pres && pres.ore_totali) {
+      giorniLavorati++;
+      oreTotal += parseFloat(pres.ore_totali)||0;
+      const ts = turno ? turno.ora_inizio.split(':').map(Number) : null;
+      const en = pres.ora_entrata ? pres.ora_entrata.split(':').map(Number) : null;
+      if (ts && en && (en[0]*60+en[1]) - (ts[0]*60+ts[1]) > 15) { stato = 'Ritardo'; ritardi++; }
+      else stato = 'Presente';
+    } else if (turno && !isFuture) { stato = 'Assente'; assenze++; }
+    else if (isFuture && turno) stato = 'Programmato';
+    const dataFmt = new Date(date+'T12:00:00').toLocaleDateString('it-IT', {weekday:'short', day:'2-digit', month:'short'});
+    return [dataFmt, turno?`${turno.ora_inizio}–${turno.ora_fine}`:'—', pres?.ora_entrata||'—', pres?.ora_uscita||'—', pres?.ore_totali?pres.ore_totali+'h':'—', stato];
+  });
+  const headers = ['Data','Turno previsto','Entrata','Uscita','Ore','Stato'];
+  const title = `Presenze ${nome} — ${nomeMese}`;
+  exportToPDF(title, headers, rows, 'presenze');
 }
 
 // ══════════════════════════════════════════════════════════
@@ -1920,6 +2290,125 @@ async function exportSales(){
   await loadStorico();
   const rows=allSales.map(s=>[new Date(s.created_at).toLocaleString('it-IT'),s.product_name,s.brand||'',s.qty,s.channel,s.user_name||'',s.total]);
   doExport('Storico Vendite',['Data','Prodotto','Brand','Qty','Canale','Operatore','Totale'],rows,'storico');
+}
+
+// ══════════════════════════════════════════════════════════
+// QR CODE / ETICHETTE
+// ══════════════════════════════════════════════════════════
+let labelProduct = null;
+let labelQty = 1;
+let labelQRInstance = null;
+
+function generateSKU(id) {
+  return 'SAHA-' + String(id).padStart(4, '0');
+}
+
+function openLabelModal(productId) {
+  const p = allProducts.find(x => x.id === productId);
+  if (!p) return;
+  labelProduct = p;
+  labelQty = 1;
+  document.getElementById('label-qty-disp').textContent = '1';
+  const sku = p.sku || generateSKU(p.id);
+  const name = p.name;
+  const price = '€' + Number(p.price).toFixed(2);
+  document.getElementById('label-modal-sub').textContent = name + ' · ' + (p.brand || '');
+  document.getElementById('lp-name-txt').textContent = name;
+  document.getElementById('lp-sku-txt').textContent = sku;
+  document.getElementById('lp-price-txt').textContent = price;
+  // Generate QR
+  const qrContainer = document.getElementById('lp-qr');
+  qrContainer.innerHTML = '';
+  try {
+    labelQRInstance = new QRCode(qrContainer, {
+      text: sku,
+      width: 50,
+      height: 50,
+      colorDark: '#1C1810',
+      colorLight: '#ffffff',
+      correctLevel: QRCode.CorrectLevel.M
+    });
+  } catch(e) {
+    qrContainer.innerHTML = '<div style="width:50px;height:50px;background:var(--bg3);display:flex;align-items:center;justify-content:center;font-size:9px;color:var(--text2);">QR</div>';
+  }
+  openModal('modal-label');
+}
+
+function changeLabelQty(delta) {
+  labelQty = Math.max(1, Math.min(50, labelQty + delta));
+  document.getElementById('label-qty-disp').textContent = labelQty;
+}
+
+function printLabels() {
+  if (!labelProduct) return;
+  const p = labelProduct;
+  const sku = p.sku || generateSKU(p.id);
+  const name = p.name.length > 28 ? p.name.slice(0, 28) + '…' : p.name;
+  const price = '€' + Number(p.price).toFixed(2);
+
+  // Get QR image from the preview
+  const qrImg = document.querySelector('#lp-qr canvas, #lp-qr img');
+  let qrSrc = '';
+  if (qrImg && qrImg.tagName === 'CANVAS') {
+    qrSrc = qrImg.toDataURL('image/png');
+  } else if (qrImg && qrImg.tagName === 'IMG') {
+    qrSrc = qrImg.src;
+  }
+
+  // Build one label HTML (40x25mm ~ 151x95px @96dpi)
+  const singleLabel = `
+    <div style="
+      width:151px;height:95px;border:0.5pt solid #ccc;padding:4px;
+      display:inline-flex;flex-direction:column;align-items:center;
+      justify-content:center;gap:2px;background:#fff;
+      page-break-inside:avoid;margin:2px;font-family:sans-serif;
+    ">
+      ${qrSrc ? `<img src="${qrSrc}" style="width:50px;height:50px;" alt="QR">` : '<div style="width:50px;height:50px;background:#eee;"></div>'}
+      <div style="font-size:7pt;font-weight:700;text-align:center;line-height:1.2;max-width:138px;overflow:hidden;">${name}</div>
+      <div style="font-size:5.5pt;color:#666;letter-spacing:.3px;">${sku}</div>
+      <div style="font-size:9pt;font-weight:600;color:#B8862A;">${price}</div>
+    </div>`;
+
+  // Repeat N times
+  const labelsHTML = Array(labelQty).fill(singleLabel).join('');
+
+  const printWindow = window.open('', '_blank', 'width=700,height=600');
+  if (!printWindow) { toast('Abilita i popup per stampare', 'warning'); return; }
+  printWindow.document.write(`<!DOCTYPE html>
+<html><head><meta charset="UTF-8">
+<title>Etichette SAHA — ${name}</title>
+<style>
+  body { margin: 0; padding: 8px; background: #fff; }
+  @page { size: A4; margin: 10mm; }
+  @media print { button { display:none!important; } }
+  .labels-wrap { display:flex;flex-wrap:wrap;gap:2px; }
+</style>
+</head><body>
+<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;border-bottom:1px solid #ddd;padding-bottom:8px;">
+  <div style="font-size:14pt;font-weight:bold;letter-spacing:2px;color:#B8862A;">SAHA PARFUM</div>
+  <div style="font-size:9pt;color:#888;">${labelQty} etichett${labelQty===1?'a':'e'} · ${sku}</div>
+  <button onclick="window.print()" style="background:#B8862A;color:#fff;border:none;padding:8px 18px;border-radius:6px;cursor:pointer;font-size:12pt;">🖨️ Stampa</button>
+</div>
+<div class="labels-wrap">${labelsHTML}</div>
+</body></html>`);
+  printWindow.document.close();
+  toast(`${labelQty} etichett${labelQty===1?'a':'e'} pronte per la stampa!`);
+  closeModal('modal-label');
+}
+
+// Aggiunge riconoscimento SKU SAHA nello scanner
+async function lookupBarcode(val) {
+  // Se è uno SKU SAHA (es. SAHA-0001), cerca per id
+  const skuMatch = val.match(/^SAHA-(\d{4})$/i);
+  if (skuMatch) {
+    const id = parseInt(skuMatch[1], 10);
+    const p = allProducts.find(x => x.id === id);
+    if (p) { showScanResult(p); return; }
+    const { data } = await sb.from('products').select('*').eq('id', id).single();
+    if (data) { showScanResult(data); return; }
+  }
+  // Logica barcode standard
+  await _lookupBarcodeOriginal(val);
 }
 
 // ══════════════════════════════════════════════════════════
