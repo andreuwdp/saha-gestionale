@@ -1249,6 +1249,7 @@ function goTo(id) {
   else if (id === 'reset-requests') loadResetRequests();
   else if (id === 'shopify') loadShopify();
   else if (id === 'export') initExportDates();
+  else if (id === 'vendita') loadTodaySales();
 }
 
 // ══ SIDEBAR ══
@@ -1545,13 +1546,20 @@ async function confirmSale() {
 }
 
 async function loadTodaySales() {
-  const today = new Date().toISOString().slice(0,10);
-  const { data } = await sb.from('sales').select('*').gte('created_at',today).order('created_at',{ascending:false});
+  // Usa inizio giornata locale in UTC per evitare problemi di fuso orario
+  const now = new Date();
+  const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0);
+  const { data } = await sb.from('sales')
+    .select('*')
+    .gte('created_at', startOfDay.toISOString())
+    .eq('annullata', false)
+    .order('created_at', {ascending: false});
   const el = document.getElementById('today-sales');
+  if (!el) return;
   if (!data?.length) { el.innerHTML='<div style="color:var(--text3);font-size:12px;">Nessuna vendita ancora oggi.</div>'; return; }
-  let tot=0;
-  el.innerHTML = data.map(s=>{
-    tot+=parseFloat(s.total);
+  let tot = 0;
+  el.innerHTML = data.map(s => {
+    tot += parseFloat(s.total);
     return `<div style="display:flex;justify-content:space-between;align-items:center;padding:9px 0;border-bottom:1px solid rgba(184,134,42,.08);">
       <div><div style="font-size:13px;font-weight:500;">${s.product_name}</div>
       <div style="font-size:11px;color:var(--text2);">${new Date(s.created_at).toLocaleTimeString('it-IT',{hour:'2-digit',minute:'2-digit'})} · ${s.channel} · ${s.user_name||'—'}</div></div>
