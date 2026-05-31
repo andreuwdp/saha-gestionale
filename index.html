@@ -643,7 +643,7 @@ tr:hover td{background:var(--gold-glow);}
 <!-- ══ PAGE: STORICO ══ -->
 <section class="page" id="page-storico">
   <div class="sec-header"><span class="sec-title">🧾 Storico vendite</span><button class="btn btn-outline btn-sm" onclick="exportSales()"><i class="ti ti-download"></i> Esporta</button></div>
-  <div class="tbl-wrap"><table><thead><tr><th>Data</th><th>Prodotto</th><th>Qty</th><th>Canale</th><th>Operatore</th><th>Totale</th></tr></thead><tbody id="storico-tbody"><tr><td colspan="6" style="text-align:center;padding:20px;color:var(--text3);">Caricamento...</td></tr></tbody></table></div>
+  <div class="tbl-wrap"><table><thead><tr><th>Data</th><th>Prodotto</th><th>Qty</th><th>Canale</th><th>Operatore</th><th>Totale</th><th></th></tr></thead><tbody id="storico-tbody"><tr><td colspan="7" style="text-align:center;padding:20px;color:var(--text3);">Caricamento...</td></tr></tbody></table></div>
 </section>
 
 <!-- ══ PAGE: EXPORT ══ -->
@@ -1714,20 +1714,53 @@ async function loadStorico() {
   const { data } = await sb.from('sales').select('*').order('created_at',{ascending:false}).limit(200);
   allSales = data || [];
   const tb = document.getElementById('storico-tbody');
-  if (!allSales.length) { tb.innerHTML='<tr><td colspan="6" style="text-align:center;padding:20px;color:var(--text3);">Nessuna vendita.</td></tr>'; return; }
-  tb.innerHTML = allSales.map(s=>`<tr>
-    <td style="font-size:11px;color:var(--text2);">${new Date(s.created_at).toLocaleString('it-IT')}</td>
-    <td><div class="pname">${s.product_name}</div><div class="pbrand">${s.brand||''}</div></td>
-    <td>${s.qty}</td>
-    <td><span class="badge ${s.channel==='online'?'badge-info':'badge-gold'}">${s.channel}</span></td>
-    <td style="font-size:12px;color:var(--text2);">${s.user_name||'—'}</td>
-    <td style="font-weight:500;color:var(--gold);">€${s.total}</td>
-  </tr>`).join('');
+  if (!allSales.length) { tb.innerHTML='<tr><td colspan="7" style="text-align:center;padding:20px;color:var(--text3);">Nessuna vendita.</td></tr>'; return; }
+  tb.innerHTML = allSales.map(s => {
+    const annullata = s.annullata === true;
+    const rowStyle = annullata ? 'opacity:0.45;text-decoration:line-through;' : '';
+    return `<tr style="${rowStyle}">
+      <td style="font-size:11px;color:var(--text2);">${new Date(s.created_at).toLocaleString('it-IT')}</td>
+      <td><div class="pname">${s.product_name}</div><div class="pbrand">${s.brand||''}</div></td>
+      <td>${s.qty}</td>
+      <td><span class="badge ${s.channel==='online'?'badge-info':'badge-gold'}">${s.channel}</span></td>
+      <td style="font-size:12px;color:var(--text2);">${s.user_name||'—'}</td>
+      <td style="font-weight:500;color:${annullata?'var(--text3)':'var(--gold)'};">€${s.total}${annullata?' <span style="font-size:10px;color:var(--danger);">(annullata)</span>':''}</td>
+      <td>${!annullata ? `<button class="btn btn-sm btn-danger" onclick="annullaVendita(${s.id},'${s.product_name.replace(/'/g,"\\'")}',${s.qty})" title="Annulla vendita"><i class="ti ti-arrow-back-up"></i></button>` : ''}</td>
+    </tr>`;
+  }).join('');
 }
 
-// ══════════════════════════════════════════════════════════
-// REGISTRO (solo capo)
-// ══════════════════════════════════════════════════════════
+async function annullaVendita(saleId, productName, qty) {
+  if (!confirm(`Annullare la vendita di "${productName}" (${qty} pz)?\n\nLa quantità verrà rimessa in magazzino.`)) return;
+
+  // Trova la vendita
+  const sale = allSales.find(s => s.id === saleId);
+  if (!sale) { toast('Vendita non trovata', 'danger'); return; }
+
+  // Trova il prodotto in magazzino per nome
+  const { data: products } = await sb.from('products').select('*').ilike('name', sale.product_name);
+  const product = products?.[0] || allProducts.find(p => p.name === sale.product_name);
+
+  // Segna vendita come annullata
+  const { error: saleErr } = await sb.from('sales').update({ annullata: true }).eq('id', saleId);
+  if (saleErr) { toast('Errore: ' + saleErr.message, 'danger'); return; }
+
+  // Rimetti le scorte in magazzino
+  if (product) {
+    const newQty = (product.qty || 0) + qty;
+    const newSold = Math.max(0, (product.sold || 0) - qty);
+    await sb.from('products').update({ qty: newQty, sold: newSold }).eq('id', product.id);
+    // Aggiorna allProducts in memoria
+    const idx = allProducts.findIndex(p => p.id === product.id);
+    if (idx >= 0) { allProducts[idx].qty = newQty; allProducts[idx].sold = newSold; }
+    toast(`Vendita annullata — ${qty} pz rimessi in magazzino per "${productName}"`);
+  } else {
+    toast(`Vendita annullata — prodotto non trovato in magazzino, scorte non aggiornate`, 'warning');
+  }
+
+  await logActivity(`Vendita annullata: ${productName} x${qty}`, 'storico');
+  loadStorico();
+}
 async function loadRegistro() {
   const userFilter = document.getElementById('reg-filter-user')?.value||'';
   // Populate filter
