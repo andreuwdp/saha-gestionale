@@ -369,7 +369,13 @@ tr:hover td{background:var(--gold-glow);}
 .pulse{animation:pulse 2s infinite;}
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
 
-/* ═══ SHOPIFY ═══ */
+/* Html5QrCode override */
+#html5-qr-container { border-radius: var(--r-lg); overflow: hidden; }
+#html5-qr-container video { border-radius: var(--r-lg); }
+#html5-qr-container img { display: none !important; }
+#html5qr-code-full-region { border: none !important; padding: 0 !important; }
+#html5qr-code-full-region__dashboard { display: none !important; }
+#html5qr-code-full-region__scan_region { border-radius: var(--r-lg); overflow: hidden; }
 .shopify-tab{
   padding:10px 18px;border:none;background:none;cursor:pointer;
   font-size:13px;font-family:'DM Sans',sans-serif;color:var(--text2);
@@ -1049,7 +1055,7 @@ tr:hover td{background:var(--gold-glow);}
 <!-- TOAST -->
 <div class="toast" id="toast"><i class="ti ti-check" id="toast-icon"></i><span id="toast-msg">—</span></div>
 
-<script src="https://cdn.jsdelivr.net/npm/@zxing/library@0.18.6/umd/index.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"></script>
 <script>
 // ══════════════════════════════════════════════════════════
@@ -1537,44 +1543,105 @@ async function loadTodaySales() {
 
 // ══ CAMERA ══
 async function toggleCam() { if (camActive) stopCam(); else await startCam(); }
+
 async function startCam() {
-  if (location.protocol!=='https:'&&location.hostname!=='localhost') { toast('Camera richiede HTTPS','warning'); return; }
-  if (!navigator.mediaDevices?.getUserMedia) { toast('Camera non supportata','warning'); return; }
-  const ph=document.getElementById('cam-ph'), overlay=document.getElementById('cam-overlay'), video=document.getElementById('cam-video');
+  if (location.protocol!=='https:' && location.hostname!=='localhost') {
+    toast('Camera richiede HTTPS','warning'); return;
+  }
+  if (!navigator.mediaDevices?.getUserMedia) {
+    toast('Camera non supportata su questo dispositivo','warning'); return;
+  }
+
+  const ph = document.getElementById('cam-ph');
+  const overlay = document.getElementById('cam-overlay');
+  const videoContainer = document.getElementById('cam-video').parentElement;
+
+  // Nascondi placeholder, mostra overlay
+  ph.style.display = 'none';
+  overlay.style.display = 'flex';
+  document.getElementById('cam-btn-icon').className = 'ti ti-x';
+  document.getElementById('cam-btn-txt').textContent = 'Ferma camera';
+  camActive = true;
+
+  // Crea container per Html5QrCode se non esiste
+  let qrContainer = document.getElementById('html5-qr-container');
+  if (!qrContainer) {
+    qrContainer = document.createElement('div');
+    qrContainer.id = 'html5-qr-container';
+    qrContainer.style.cssText = 'width:100%;max-width:320px;margin:0 auto;';
+    // Sostituisci il video element con il container
+    const video = document.getElementById('cam-video');
+    video.style.display = 'none';
+    video.parentElement.insertBefore(qrContainer, video);
+  }
+  qrContainer.style.display = 'block';
+
   try {
-    camStream = await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'}}});
-    video.srcObject=camStream; await video.play();
-    ph.style.display='none'; overlay.style.display='flex';
-    document.getElementById('cam-btn-icon').className='ti ti-x';
-    document.getElementById('cam-btn-txt').textContent='Ferma camera';
-    camActive=true;
-    if (typeof ZXing!=='undefined') {
-      camReader=new ZXing.BrowserMultiFormatReader();
-      camReader.decodeFromVideoElement(video,(result)=>{
-        if(result){
-          const code=result.getText();
-          document.getElementById('barcode-input').value=code;
-          lookupBarcode(code);
-          if(scannedProduct){stopCam();if(navigator.vibrate)navigator.vibrate([100,50,100]);}
-        }
-      });
-    }
+    camReader = new Html5Qrcode('html5-qr-container');
+    const config = {
+      fps: 15,
+      qrbox: { width: 250, height: 180 },
+      aspectRatio: 1.5,
+      supportedScanTypes: [
+        Html5QrcodeScanType.SCAN_TYPE_CAMERA
+      ],
+      formatsToSupport: [
+        Html5QrcodeSupportedFormats.QR_CODE,
+        Html5QrcodeSupportedFormats.EAN_13,
+        Html5QrcodeSupportedFormats.EAN_8,
+        Html5QrcodeSupportedFormats.CODE_128,
+        Html5QrcodeSupportedFormats.CODE_39,
+        Html5QrcodeSupportedFormats.UPC_A,
+        Html5QrcodeSupportedFormats.UPC_E,
+      ]
+    };
+
+    await camReader.start(
+      { facingMode: 'environment' },
+      config,
+      (decodedText) => {
+        // Successo — codice letto
+        document.getElementById('barcode-input').value = decodedText;
+        lookupBarcode(decodedText);
+        if (navigator.vibrate) navigator.vibrate([100, 50, 100]);
+        // Se prodotto trovato, ferma camera dopo 1.5s
+        setTimeout(() => {
+          if (scannedProduct) stopCam();
+        }, 1500);
+      },
+      (errorMsg) => {
+        // Errore di decodifica — normale, non fare nulla
+      }
+    );
   } catch(e) {
-    let msg='Camera non disponibile';
-    if(e.name==='NotAllowedError')msg='Permesso camera negato';
-    toast(msg,'warning'); stopCam();
+    let msg = 'Camera non disponibile';
+    if (e.name === 'NotAllowedError' || e.toString().includes('NotAllowed')) msg = 'Permesso camera negato — controlla le impostazioni del browser';
+    else if (e.toString().includes('NotFound')) msg = 'Nessuna camera trovata';
+    toast(msg, 'warning');
+    stopCam();
   }
 }
+
 function stopCam() {
-  if(camReader){try{camReader.reset();}catch(e){}camReader=null;}
-  if(camStream){camStream.getTracks().forEach(t=>t.stop());camStream=null;}
-  const video=document.getElementById('cam-video');
-  if(video)video.srcObject=null;
-  camActive=false;
-  const ph=document.getElementById('cam-ph'),overlay=document.getElementById('cam-overlay');
-  if(ph)ph.style.display='flex'; if(overlay)overlay.style.display='none';
-  document.getElementById('cam-btn-icon').className='ti ti-camera';
-  document.getElementById('cam-btn-txt').textContent='Attiva camera';
+  if (camReader) {
+    try { camReader.stop().catch(()=>{}); } catch(e) {}
+    try { camReader.clear(); } catch(e) {}
+    camReader = null;
+  }
+  // Nascondi container QR
+  const qrContainer = document.getElementById('html5-qr-container');
+  if (qrContainer) qrContainer.style.display = 'none';
+
+  const video = document.getElementById('cam-video');
+  if (video) { video.srcObject = null; }
+  camActive = false;
+
+  const ph = document.getElementById('cam-ph');
+  const overlay = document.getElementById('cam-overlay');
+  if (ph) ph.style.display = 'flex';
+  if (overlay) overlay.style.display = 'none';
+  document.getElementById('cam-btn-icon').className = 'ti ti-camera';
+  document.getElementById('cam-btn-txt').textContent = 'Attiva camera';
 }
 
 // ══════════════════════════════════════════════════════════
