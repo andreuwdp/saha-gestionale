@@ -2485,20 +2485,44 @@ function initExportDates() {
   document.getElementById('ex-to').value=fmt(now);
 }
 function csvEsc(v){var s=String(v==null?'':v).replace(/"/g,'""');return(s.indexOf(',')>=0||s.indexOf('\n')>=0||s.indexOf('"')>=0)?'"'+s+'"':s;}
-function toCSV(rows){var CRLF=String.fromCharCode(13,10);return rows.map(function(r){return r.map(csvEsc).join(',');}).join(CRLF);}
-function dlCSV(rows,fn){var a=document.createElement('a');a.href='data:text/csv;charset=utf-8,'+encodeURIComponent('\uFEFF'+toCSV(rows));a.download=fn;a.click();}
+function toCSV(rows){var CRLF='\r\n';return rows.map(function(r){return r.map(csvEsc).join(',');}).join(CRLF);}
+function dlCSV(rows,fn){
+  // BOM + CSV come Blob — Excel lo legge correttamente
+  const bom = '\uFEFF';
+  const csv = bom + toCSV(rows);
+  const blob = new Blob([csv], {type:'text/csv;charset=utf-8;'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = fn;
+  document.body.appendChild(a); a.click();
+  setTimeout(() => { document.body.removeChild(a); URL.revokeObjectURL(url); }, 100);
+}
 function exportToPDF(title,headers,rows,fn){
   var esc=function(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');};
   var cw=Math.floor(100/headers.length);
   var thead='<tr>'+headers.map(function(h){return'<th style="background:#B8862A;color:#fff;padding:7px 8px;font-size:11px;text-align:left;width:'+cw+'%">'+esc(h)+'</th>';}).join('')+'</tr>';
   var tbody=rows.map(function(row,ri){var bg=ri%2===0?'#fff':'#FAF8F3';return'<tr style="background:'+bg+'">'+row.map(function(cell){return'<td style="padding:6px 8px;font-size:10px;border-bottom:1px solid #EAE6DC;">'+esc(String(cell||''))+'</td>';}).join('')+'</tr>';}).join('');
-  var html='<!DOCTYPE html><html><head><meta charset="UTF-8"><title>'+esc(title)+'</title><style>body{font-family:sans-serif;margin:0;padding:20px;}table{width:100%;border-collapse:collapse;}@media print{button{display:none!important;}}</style></head><body>'+
+  var html='<!DOCTYPE html><html><head><meta charset="UTF-8"><title>'+esc(title)+'</title><style>body{font-family:sans-serif;margin:0;padding:20px;}table{width:100%;border-collapse:collapse;}@media print{.no-print{display:none!important;}}</style></head><body>'+
   '<div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;"><div style="background:#B8862A;color:#fff;padding:8px 16px;border-radius:6px;font-weight:bold;font-size:16px;letter-spacing:2px;">SAHA PARFUM</div>'+
   '<div><div style="font-size:15px;font-weight:600;">'+esc(title)+'</div><div style="font-size:11px;color:#888;">'+new Date().toLocaleDateString('it-IT')+' · dpzmarketing</div></div></div>'+
   '<table><thead>'+thead+'</thead><tbody>'+tbody+'</tbody></table>'+
-  '<button onclick="window.print()" style="margin-top:16px;background:#B8862A;color:#fff;border:none;padding:10px 24px;border-radius:6px;cursor:pointer;font-size:13px;">🖨️ Stampa / Salva PDF</button></body></html>';
-  var w=window.open('','_blank','width=900,height=700');
-  if(w){w.document.write(html);w.document.close();}
+  '<div class="no-print" style="margin-top:16px;display:flex;gap:10px;">'+
+  '<button onclick="window.print()" style="background:#B8862A;color:#fff;border:none;padding:10px 24px;border-radius:6px;cursor:pointer;font-size:13px;">🖨️ Stampa / Salva PDF</button>'+
+  '</div></body></html>';
+  // Usa Blob invece di window.open per evitare blocco popup
+  const blob = new Blob([html], {type:'text/html;charset=utf-8;'});
+  const url = URL.createObjectURL(blob);
+  const w = window.open(url, '_blank');
+  if (!w) {
+    // Fallback: download diretto come HTML
+    const a = document.createElement('a');
+    a.href = url; a.download = 'saha_'+fn+'_'+new Date().toISOString().slice(0,10)+'.html';
+    document.body.appendChild(a); a.click();
+    setTimeout(() => { document.body.removeChild(a); URL.revokeObjectURL(url); }, 100);
+    toast('File HTML scaricato — aprilo e stampa come PDF dal browser', 'warning');
+  } else {
+    setTimeout(() => URL.revokeObjectURL(url), 5000);
+  }
 }
 function doExport(title,headers,rows,fn){
   if(!rows.length){toast('Nessun dato da esportare','warning');return;}
