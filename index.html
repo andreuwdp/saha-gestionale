@@ -562,14 +562,25 @@ tr:hover td{background:var(--gold-glow);}
 <section class="page active" id="page-dashboard">
   <div id="dash-alerts"></div>
   <div class="kpi-grid">
-    <div class="kpi"><div class="kpi-label">Prodotti</div><div class="kpi-val" id="kpi-prods">—</div><div class="kpi-sub">referenze attive</div></div>
-    <div class="kpi danger"><div class="kpi-label">Scorte critiche</div><div class="kpi-val" id="kpi-low">—</div><div class="kpi-sub">da riordinare</div></div>
-    <div class="kpi success"><div class="kpi-label">Vendite oggi</div><div class="kpi-val" id="kpi-today">—</div><div class="kpi-sub">unità vendute</div></div>
-    <div class="kpi"><div class="kpi-label">Ordini attivi</div><div class="kpi-val" id="kpi-orders">—</div><div class="kpi-sub">in attesa</div></div>
+    <div class="kpi" style="cursor:pointer;" onclick="goTo('magazzino')" title="Vai al magazzino">
+      <div class="kpi-label">Prodotti</div><div class="kpi-val" id="kpi-prods">—</div><div class="kpi-sub">referenze attive →</div>
+    </div>
+    <div class="kpi danger" style="cursor:pointer;" onclick="goToScorteCritiche()" title="Vai alle scorte critiche">
+      <div class="kpi-label">Scorte critiche</div><div class="kpi-val" id="kpi-low">—</div><div class="kpi-sub">da riordinare →</div>
+    </div>
+    <div class="kpi success" style="cursor:pointer;" onclick="goToVenditeOggi()" title="Vai alle vendite di oggi">
+      <div class="kpi-label">Vendite oggi</div><div class="kpi-val" id="kpi-today">—</div><div class="kpi-sub">unità vendute →</div>
+    </div>
+    <div class="kpi" style="cursor:pointer;" onclick="goTo('ordini')" title="Vai agli ordini">
+      <div class="kpi-label">Ordini attivi</div><div class="kpi-val" id="kpi-orders">—</div><div class="kpi-sub">in attesa →</div>
+    </div>
   </div>
   <div class="two-col">
     <div class="card"><div class="card-title"><i class="ti ti-activity"></i> Attività recente</div><div class="scroll-area" id="dash-activity"><div style="color:var(--text3);font-size:12px;">Caricamento...</div></div></div>
-    <div class="card"><div class="card-title"><i class="ti ti-alert-triangle"></i> Scorte basse</div><div class="scroll-area" id="dash-low"><div style="color:var(--text3);font-size:12px;">Caricamento...</div></div></div>
+    <div class="card" style="cursor:pointer;" onclick="goToScorteBasse()" title="Vai alle scorte basse">
+      <div class="card-title"><i class="ti ti-alert-triangle"></i> Scorte basse <span style="font-size:11px;color:var(--gold);margin-left:auto;">→ vedi tutte</span></div>
+      <div class="scroll-area" id="dash-low"><div style="color:var(--text3);font-size:12px;">Caricamento...</div></div>
+    </div>
   </div>
   <div class="card"><div class="card-title"><i class="ti ti-chart-bar"></i> Top prodotti</div><div id="dash-chart" style="display:flex;gap:8px;align-items:flex-end;height:100px;padding-top:8px;"></div></div>
 </section>
@@ -583,7 +594,8 @@ tr:hover td{background:var(--gold-glow);}
         <option value="">Tutte le categorie</option>
         <option>Oud</option><option>Musc</option><option>Rose & Floreali</option><option>Bakhour</option><option>Unisex</option><option>Accessori</option>
       </select>
-      <button class="btn btn-outline btn-sm" onclick="exportProducts()"><i class="ti ti-download"></i> Esporta</button>
+      <button class="btn btn-outline btn-sm" onclick="exportProducts('csv')"><i class="ti ti-file-spreadsheet"></i> Excel</button>
+      <button class="btn btn-outline btn-sm" onclick="exportProducts('pdf')"><i class="ti ti-file-type-pdf"></i> PDF</button>
       <button class="btn btn-gold btn-sm" onclick="openModal('modal-add-product')"><i class="ti ti-plus"></i> Aggiungi</button>
     </div>
   </div>
@@ -661,8 +673,31 @@ tr:hover td{background:var(--gold-glow);}
 
 <!-- ══ PAGE: STORICO ══ -->
 <section class="page" id="page-storico">
-  <div class="sec-header"><span class="sec-title">🧾 Storico vendite</span><button class="btn btn-outline btn-sm" onclick="exportSales()"><i class="ti ti-download"></i> Esporta</button></div>
+  <div class="sec-header"><span class="sec-title">🧾 Storico vendite</span>
+    <div style="display:flex;gap:6px;">
+      <button class="btn btn-outline btn-sm" onclick="exportSales('csv')"><i class="ti ti-file-spreadsheet"></i> Excel</button>
+      <button class="btn btn-outline btn-sm" onclick="exportSales('pdf')"><i class="ti ti-file-type-pdf"></i> PDF</button>
+    </div>
+  </div>
+  <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;align-items:center;">
+    <div class="form-g" style="margin:0;display:flex;align-items:center;gap:6px;">
+      <label style="font-size:11px;color:var(--text2);white-space:nowrap;">Dal</label>
+      <input type="date" id="storico-from" style="padding:7px 10px;border-radius:var(--r);border:1px solid var(--gold-border);background:var(--bg3);font-size:12px;font-family:'DM Sans',sans-serif;">
+    </div>
+    <div class="form-g" style="margin:0;display:flex;align-items:center;gap:6px;">
+      <label style="font-size:11px;color:var(--text2);white-space:nowrap;">Al</label>
+      <input type="date" id="storico-to" style="padding:7px 10px;border-radius:var(--r);border:1px solid var(--gold-border);background:var(--bg3);font-size:12px;font-family:'DM Sans',sans-serif;">
+    </div>
+    <select id="storico-channel" style="padding:7px 10px;border-radius:var(--r);border:1px solid var(--gold-border);background:var(--bg3);font-size:12px;font-family:'DM Sans',sans-serif;">
+      <option value="">Tutti i canali</option>
+      <option value="negozio">Negozio</option>
+      <option value="online">Online</option>
+    </select>
+    <button class="btn btn-gold btn-sm" onclick="loadStorico()"><i class="ti ti-filter"></i> Filtra</button>
+    <button class="btn btn-outline btn-sm" onclick="resetStoricoFilter()"><i class="ti ti-x"></i> Reset</button>
+  </div>
   <div class="tbl-wrap"><table><thead><tr><th>Data</th><th>Prodotto</th><th>Qty</th><th>Canale</th><th>Operatore</th><th>Totale</th><th></th></tr></thead><tbody id="storico-tbody"><tr><td colspan="7" style="text-align:center;padding:20px;color:var(--text3);">Caricamento...</td></tr></tbody></table></div>
+  <div id="storico-totale" style="text-align:right;padding:12px 16px;font-family:'Cormorant Garamond',serif;font-size:20px;color:var(--gold);"></div>
 </section>
 
 <!-- ══ PAGE: EXPORT ══ -->
@@ -1332,9 +1367,43 @@ async function logActivity(action, page='', details='') {
   });
 }
 
-// ══════════════════════════════════════════════════════════
-// DASHBOARD
-// ══════════════════════════════════════════════════════════
+// ── Navigazione rapida dalla Dashboard ──
+function goToScorteCritiche() {
+  goTo('magazzino');
+  // Aspetta che il magazzino carichi, poi filtra per scorte basse
+  setTimeout(() => {
+    const searchEl = document.getElementById('search-mag');
+    if (searchEl) { searchEl.value = ''; }
+    // Filtra visivamente solo i prodotti sotto soglia
+    const rows = document.querySelectorAll('#mag-tbody tr');
+    rows.forEach(row => {
+      const badge = row.querySelector('.badge');
+      if (badge && (badge.textContent.includes('Esaurito') || badge.textContent.includes('Scorta bassa'))) {
+        row.style.display = '';
+      } else if (badge) {
+        row.style.display = 'none';
+      }
+    });
+    toast('Mostrando solo scorte critiche — premi Aggiorna per vedere tutto', 'warning');
+  }, 800);
+}
+
+function goToScorteBasse() {
+  goToScorteCritiche();
+}
+
+function goToVenditeOggi() {
+  // Imposta filtro storico su oggi e naviga
+  goTo('storico');
+  const today = new Date().toISOString().slice(0, 10);
+  setTimeout(() => {
+    const fromEl = document.getElementById('storico-from');
+    const toEl = document.getElementById('storico-to');
+    if (fromEl) fromEl.value = today;
+    if (toEl) toEl.value = today;
+    loadStorico();
+  }, 100);
+}
 async function loadDashboard() {
   const { data: prods, error: prodErr } = await sb.from('products').select('*');
   if (prodErr) { console.error('Products error:', prodErr); }
@@ -1384,9 +1453,11 @@ async function loadDashboard() {
 }
 
 // ══════════════════════════════════════════════════════════
+// DASHBOARD
+// ══════════════════════════════════════════════════════════
+// ══════════════════════════════════════════════════════════
 // PRODUCTS
 // ══════════════════════════════════════════════════════════
-async function loadProducts() {
   const q = document.getElementById('search-mag')?.value?.toLowerCase()||'';
   const cat = document.getElementById('filter-cat')?.value||'';
   let query = sb.from('products').select('*').order('name');
@@ -1766,13 +1837,57 @@ async function receiveOrder(orderId, productId, qty, name) {
 // ══════════════════════════════════════════════════════════
 // STORICO
 // ══════════════════════════════════════════════════════════
+function resetStoricoFilter() {
+  const now = new Date();
+  const firstOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0,10);
+  const today = now.toISOString().slice(0,10);
+  const fromEl = document.getElementById('storico-from');
+  const toEl = document.getElementById('storico-to');
+  const chEl = document.getElementById('storico-channel');
+  if (fromEl) fromEl.value = firstOfMonth;
+  if (toEl) toEl.value = today;
+  if (chEl) chEl.value = '';
+  loadStorico();
+}
+
 async function loadStorico() {
-  const { data } = await sb.from('sales').select('*').order('created_at',{ascending:false}).limit(200);
+  // Leggi filtri
+  const fromEl = document.getElementById('storico-from');
+  const toEl = document.getElementById('storico-to');
+  const chEl = document.getElementById('storico-channel');
+  const from = fromEl?.value || '';
+  const to = toEl?.value || '';
+  const ch = chEl?.value || '';
+
+  // Inizializza date di default se vuote
+  if (fromEl && !fromEl.value) {
+    const now = new Date();
+    fromEl.value = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0,10);
+  }
+  if (toEl && !toEl.value) {
+    toEl.value = new Date().toISOString().slice(0,10);
+  }
+
+  let query = sb.from('sales').select('*').order('created_at', {ascending: false}).limit(500);
+  if (from) query = query.gte('created_at', from + 'T00:00:00');
+  if (to) query = query.lte('created_at', to + 'T23:59:59');
+  if (ch) query = query.eq('channel', ch);
+
+  const { data } = await query;
   allSales = data || [];
   const tb = document.getElementById('storico-tbody');
-  if (!allSales.length) { tb.innerHTML='<tr><td colspan="7" style="text-align:center;padding:20px;color:var(--text3);">Nessuna vendita.</td></tr>'; return; }
+  const totEl = document.getElementById('storico-totale');
+
+  if (!allSales.length) {
+    tb.innerHTML='<tr><td colspan="7" style="text-align:center;padding:20px;color:var(--text3);">Nessuna vendita nel periodo selezionato.</td></tr>';
+    if (totEl) totEl.textContent = '';
+    return;
+  }
+
+  let totale = 0;
   tb.innerHTML = allSales.map(s => {
     const annullata = s.annullata === true;
+    if (!annullata) totale += parseFloat(s.total) || 0;
     const rowStyle = annullata ? 'opacity:0.45;text-decoration:line-through;' : '';
     return `<tr style="${rowStyle}">
       <td style="font-size:11px;color:var(--text2);">${new Date(s.created_at).toLocaleString('it-IT')}</td>
@@ -1784,6 +1899,8 @@ async function loadStorico() {
       <td>${!annullata ? `<button class="btn btn-sm btn-danger" onclick="annullaVendita(${s.id},'${s.product_name.replace(/'/g,"\\'")}',${s.qty})" title="Annulla vendita"><i class="ti ti-arrow-back-up"></i></button>` : ''}</td>
     </tr>`;
   }).join('');
+
+  if (totEl) totEl.textContent = `Totale periodo: €${totale.toFixed(2)} · ${allSales.filter(s=>!s.annullata).length} vendite`;
 }
 
 async function annullaVendita(saleId, productName, qty) {
@@ -2502,27 +2619,35 @@ function exportToPDF(title,headers,rows,fn){
   var cw=Math.floor(100/headers.length);
   var thead='<tr>'+headers.map(function(h){return'<th style="background:#B8862A;color:#fff;padding:7px 8px;font-size:11px;text-align:left;width:'+cw+'%">'+esc(h)+'</th>';}).join('')+'</tr>';
   var tbody=rows.map(function(row,ri){var bg=ri%2===0?'#fff':'#FAF8F3';return'<tr style="background:'+bg+'">'+row.map(function(cell){return'<td style="padding:6px 8px;font-size:10px;border-bottom:1px solid #EAE6DC;">'+esc(String(cell||''))+'</td>';}).join('')+'</tr>';}).join('');
-  var html='<!DOCTYPE html><html><head><meta charset="UTF-8"><title>'+esc(title)+'</title><style>body{font-family:sans-serif;margin:0;padding:20px;}table{width:100%;border-collapse:collapse;}@media print{.no-print{display:none!important;}}</style></head><body>'+
-  '<div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;"><div style="background:#B8862A;color:#fff;padding:8px 16px;border-radius:6px;font-weight:bold;font-size:16px;letter-spacing:2px;">SAHA PARFUM</div>'+
-  '<div><div style="font-size:15px;font-weight:600;">'+esc(title)+'</div><div style="font-size:11px;color:#888;">'+new Date().toLocaleDateString('it-IT')+' · dpzmarketing</div></div></div>'+
+  var html='<!DOCTYPE html><html><head><meta charset="UTF-8"><title>'+esc(title)+'</title><style>*{box-sizing:border-box;}body{font-family:sans-serif;margin:0;padding:20px;background:#fff;}table{width:100%;border-collapse:collapse;margin-bottom:16px;}@media print{.no-print{display:none!important;}body{padding:10px;}}</style></head><body>'+
+  '<div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;border-bottom:2px solid #B8862A;padding-bottom:12px;">'+
+  '<div style="background:#B8862A;color:#fff;padding:8px 16px;border-radius:6px;font-weight:bold;font-size:16px;letter-spacing:2px;">SAHA PARFUM</div>'+
+  '<div><div style="font-size:15px;font-weight:600;">'+esc(title)+'</div><div style="font-size:11px;color:#888;">'+new Date().toLocaleDateString('it-IT')+' · dpzmarketing</div></div>'+
+  '<div class="no-print" style="margin-left:auto;"><button onclick="window.print()" style="background:#B8862A;color:#fff;border:none;padding:10px 24px;border-radius:6px;cursor:pointer;font-size:13px;font-family:sans-serif;">🖨️ Stampa / Salva PDF</button></div>'+
+  '</div>'+
   '<table><thead>'+thead+'</thead><tbody>'+tbody+'</tbody></table>'+
-  '<div class="no-print" style="margin-top:16px;display:flex;gap:10px;">'+
-  '<button onclick="window.print()" style="background:#B8862A;color:#fff;border:none;padding:10px 24px;border-radius:6px;cursor:pointer;font-size:13px;">🖨️ Stampa / Salva PDF</button>'+
-  '</div></body></html>';
-  // Usa Blob invece di window.open per evitare blocco popup
+  '<div class="no-print" style="text-align:center;color:#888;font-size:11px;margin-top:8px;">Per salvare come PDF: Stampa → Salva come PDF</div>'+
+  '</body></html>';
+
   const blob = new Blob([html], {type:'text/html;charset=utf-8;'});
   const url = URL.createObjectURL(blob);
+
+  // Prova prima window.open
   const w = window.open(url, '_blank');
-  if (!w) {
-    // Fallback: download diretto come HTML
-    const a = document.createElement('a');
-    a.href = url; a.download = 'saha_'+fn+'_'+new Date().toISOString().slice(0,10)+'.html';
-    document.body.appendChild(a); a.click();
-    setTimeout(() => { document.body.removeChild(a); URL.revokeObjectURL(url); }, 100);
-    toast('File HTML scaricato — aprilo e stampa come PDF dal browser', 'warning');
-  } else {
-    setTimeout(() => URL.revokeObjectURL(url), 5000);
+  if (w) {
+    setTimeout(() => URL.revokeObjectURL(url), 8000);
+    return;
   }
+
+  // Fallback: link click diretto (funziona anche senza popup)
+  const a = document.createElement('a');
+  a.href = url;
+  a.target = '_blank';
+  a.rel = 'noopener';
+  document.body.appendChild(a);
+  a.click();
+  setTimeout(() => { document.body.removeChild(a); URL.revokeObjectURL(url); }, 2000);
+  toast('PDF aperto — premi Stampa → Salva come PDF', 'success');
 }
 function doExport(title,headers,rows,fn){
   if(!rows.length){toast('Nessun dato da esportare','warning');return;}
@@ -2563,15 +2688,19 @@ async function exportRiordino(){
   const rows=prods.map(p=>[p.name,p.brand||'',p.barcode||'',p.qty,p.threshold,p.qty===0?'ESAURITO':'Scorta bassa']);
   doExport('Lista Riordino',['Prodotto','Brand','Barcode','Scorta','Soglia','Stato'],rows,'riordino');
 }
-async function exportProducts(){
+async function exportProducts(fmt){
   const{data}=await sb.from('products').select('*').order('name');
   const rows=(data||[]).map(p=>[p.name,p.brand||'',p.cat,p.barcode||'',p.price,p.cost||0,p.qty,p.threshold,p.sold||0]);
-  doExport('Magazzino',['Prodotto','Brand','Cat','Barcode','Prezzo','Costo','Scorta','Soglia','Venduti'],rows,'magazzino');
+  const ts=new Date().toISOString().slice(0,10);
+  if((fmt||expFmt)==='pdf') exportToPDF('Magazzino',['Prodotto','Brand','Cat','Barcode','Prezzo','Costo','Scorta','Soglia','Venduti'],rows,'magazzino');
+  else dlCSV([['Prodotto','Brand','Cat','Barcode','Prezzo','Costo','Scorta','Soglia','Venduti']].concat(rows),'saha_magazzino_'+ts+'.csv');
 }
-async function exportSales(){
+async function exportSales(fmt){
   await loadStorico();
   const rows=allSales.map(s=>[new Date(s.created_at).toLocaleString('it-IT'),s.product_name,s.brand||'',s.qty,s.channel,s.user_name||'',s.total]);
-  doExport('Storico Vendite',['Data','Prodotto','Brand','Qty','Canale','Operatore','Totale'],rows,'storico');
+  const ts=new Date().toISOString().slice(0,10);
+  if((fmt||expFmt)==='pdf') exportToPDF('Storico Vendite',['Data','Prodotto','Brand','Qty','Canale','Operatore','Totale'],rows,'storico');
+  else dlCSV([['Data','Prodotto','Brand','Qty','Canale','Operatore','Totale']].concat(rows),'saha_storico_'+ts+'.csv');
 }
 
 // ══════════════════════════════════════════════════════════
