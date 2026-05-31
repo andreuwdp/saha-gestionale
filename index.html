@@ -3,8 +3,27 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, minimum-scale=1.0, user-scalable=no, viewport-fit=cover">
-<meta http-equiv="Cache-Control" content="no-cache">
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
 <title>SAHA PARFUM — Gestionale</title>
+<script>
+// Cache buster — forza ricaricamento se versione cambiata
+(function() {
+  const APP_VERSION = '2026.05.31.01';
+  const stored = localStorage.getItem('saha_app_version');
+  if (stored && stored !== APP_VERSION) {
+    localStorage.setItem('saha_app_version', APP_VERSION);
+    // Forza hard reload pulendo la cache
+    if ('caches' in window) {
+      caches.keys().then(names => names.forEach(name => caches.delete(name)));
+    }
+    window.location.reload(true);
+  } else if (!stored) {
+    localStorage.setItem('saha_app_version', APP_VERSION);
+  }
+})();
+</script>
 <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,600;1,300&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@latest/dist/tabler-icons.min.css">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
@@ -3003,26 +3022,44 @@ async function lookupBarcode(val) {
 // ══════════════════════════════════════════════════════════
 // AUTO AUTH CHECK
 // ══════════════════════════════════════════════════════════
+let appInitialized = false;
+
 sb.auth.onAuthStateChange(async (event, session) => {
-  if (event === 'SIGNED_IN' && session?.user) {
-    if (!currentUser) await initApp(session.user);
+  if (event === 'SIGNED_IN' && session?.user && !appInitialized) {
+    appInitialized = true;
+    await initApp(session.user);
   } else if (event === 'SIGNED_OUT') {
-    document.getElementById('login-page').style.display='flex';
+    appInitialized = false;
+    currentUser = null;
+    currentProfile = null;
+    document.getElementById('login-page').style.display = 'flex';
     document.getElementById('app').classList.remove('visible');
   }
 });
 
-// Check if already logged in
+// Check if already logged in — con timeout di sicurezza
 (async () => {
+  // Timeout di sicurezza: se dopo 5s non c'è risposta, mostra login
+  const safetyTimeout = setTimeout(() => {
+    const ls = document.getElementById('loading-screen');
+    if (ls) ls.style.display = 'none';
+    if (!appInitialized) {
+      document.getElementById('login-page').style.display = 'flex';
+    }
+  }, 5000);
+
   try {
     const { data: { session } } = await sb.auth.getSession();
-    if (session?.user) {
+    clearTimeout(safetyTimeout);
+    if (session?.user && !appInitialized) {
+      appInitialized = true;
       await initApp(session.user);
-    } else {
+    } else if (!session) {
       document.getElementById('login-page').style.display = 'flex';
       document.getElementById('app').style.display = 'none';
     }
   } catch(e) {
+    clearTimeout(safetyTimeout);
     console.error('Auth init error:', e);
     document.getElementById('login-page').style.display = 'flex';
   } finally {
