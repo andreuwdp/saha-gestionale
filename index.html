@@ -1459,6 +1459,7 @@ async function loadDashboard() {
 // ══════════════════════════════════════════════════════════
 // PRODUCTS
 // ══════════════════════════════════════════════════════════
+async function loadProducts() {
   const q = document.getElementById('search-mag')?.value?.toLowerCase()||'';
   const cat = document.getElementById('filter-cat')?.value||'';
   let query = sb.from('products').select('*').order('name');
