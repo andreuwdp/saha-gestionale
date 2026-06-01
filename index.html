@@ -1320,7 +1320,7 @@ function goTo(id) {
   else if (id === 'reset-requests') loadResetRequests();
   else if (id === 'shopify') loadShopify();
   else if (id === 'export') initExportDates();
-  else if (id === 'vendita') loadTodaySales();
+  else if (id === 'vendita') { loadTodaySales(); if (!allProducts.length) loadProducts(); }
 }
 
 // ══ SIDEBAR ══
