@@ -625,6 +625,12 @@ tr:hover td{background:var(--gold-glow);}
         </button>
         <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;"><div style="flex:1;height:1px;background:var(--gold-border);"></div><span style="font-size:11px;color:var(--text3);">oppure manuale</span><div style="flex:1;height:1px;background:var(--gold-border);"></div></div>
         <div style="position:relative;margin-bottom:10px;"><i class="ti ti-barcode" style="position:absolute;left:12px;top:50%;transform:translateY(-50%);color:var(--gold);font-size:16px;"></i><input type="text" id="barcode-input" placeholder="Barcode / SKU" oninput="lookupBarcode(this.value)" style="width:100%;padding:10px 10px 10px 38px;border-radius:var(--r);border:1px solid var(--gold-border);background:var(--bg3);font-size:13px;font-family:'DM Sans',sans-serif;letter-spacing:1px;"></div>
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;"><div style="flex:1;height:1px;background:var(--gold-border);"></div><span style="font-size:11px;color:var(--text3);">oppure cerca per nome</span><div style="flex:1;height:1px;background:var(--gold-border);"></div></div>
+        <div style="position:relative;margin-bottom:6px;">
+          <i class="ti ti-search" style="position:absolute;left:12px;top:50%;transform:translateY(-50%);color:var(--gold);font-size:16px;"></i>
+          <input type="text" id="product-search-input" placeholder="Cerca prodotto per nome o brand..." oninput="searchProductSell(this.value)" style="width:100%;padding:10px 10px 10px 38px;border-radius:var(--r);border:1px solid var(--gold-border);background:var(--bg3);font-size:13px;font-family:'DM Sans',sans-serif;">
+        </div>
+        <div id="product-search-results" style="display:none;background:#fff;border:1px solid var(--gold-border);border-radius:var(--r);max-height:200px;overflow-y:auto;margin-bottom:10px;box-shadow:var(--shadow);"></div>
         <div id="scan-result" style="display:none;background:var(--bg3);border:1px solid var(--gold-border);border-radius:var(--r);padding:13px;margin-bottom:10px;">
           <div id="sr-name" style="font-size:15px;font-weight:500;margin-bottom:2px;">—</div>
           <div id="sr-meta" style="font-size:12px;color:var(--text2);">—</div>
@@ -1603,7 +1609,41 @@ function showScanResult(p) {
   document.getElementById('scan-result').style.display = 'block';
 }
 
-function hideScanResult() { scannedProduct=null; document.getElementById('scan-result').style.display='none'; }
+function searchProductSell(val) {
+  const resultsEl = document.getElementById('product-search-results');
+  if (!val || val.trim().length < 2) { resultsEl.style.display = 'none'; return; }
+  const q = val.toLowerCase();
+  const matches = allProducts.filter(p =>
+    p.name.toLowerCase().includes(q) || (p.brand||'').toLowerCase().includes(q)
+  ).slice(0, 8);
+  if (!matches.length) {
+    resultsEl.style.display = 'block';
+    resultsEl.innerHTML = '<div style="padding:12px;font-size:12px;color:var(--text3);">Nessun prodotto trovato</div>';
+    return;
+  }
+  resultsEl.style.display = 'block';
+  resultsEl.innerHTML = matches.map(p => `
+    <div onclick="selectProductSell(${p.id})" style="display:flex;justify-content:space-between;align-items:center;padding:10px 14px;cursor:pointer;border-bottom:1px solid rgba(184,134,42,.08);transition:background .1s;" onmouseover="this.style.background='var(--gold-glow)'" onmouseout="this.style.background=''">
+      <div>
+        <div style="font-size:13px;font-weight:500;">${p.name}</div>
+        <div style="font-size:11px;color:var(--text2);">${p.brand||''} · ${p.cat}</div>
+      </div>
+      <div style="text-align:right;">
+        <div style="font-weight:500;color:var(--gold);">€${Number(p.price).toFixed(2)}</div>
+        <div style="font-size:11px;color:${p.qty===0?'var(--danger)':p.qty<=p.threshold?'var(--warning)':'var(--success)'};">${p.qty===0?'Esaurito':p.qty+' pz'}</div>
+      </div>
+    </div>`).join('');
+}
+
+function selectProductSell(id) {
+  const p = allProducts.find(x => x.id === id);
+  if (!p) return;
+  // Chiudi risultati e pulisci input ricerca
+  document.getElementById('product-search-results').style.display = 'none';
+  document.getElementById('product-search-input').value = '';
+  // Mostra il prodotto come se fosse scansionato
+  showScanResult(p);
+}
 function clearScan() { document.getElementById('barcode-input').value=''; hideScanResult(); sellQty=1; document.getElementById('qty-disp').textContent='1'; }
 
 function chQty(d) {
@@ -3262,6 +3302,15 @@ sb.auth.onAuthStateChange(async (event, session) => {
 // Enter key on login
 document.getElementById('login-pwd').addEventListener('keydown', e => { if(e.key==='Enter') doLogin(); });
 document.getElementById('login-email').addEventListener('keydown', e => { if(e.key==='Enter') document.getElementById('login-pwd').focus(); });
+
+// Chiudi risultati ricerca prodotto se clicco fuori
+document.addEventListener('click', e => {
+  const sr = document.getElementById('product-search-results');
+  const si = document.getElementById('product-search-input');
+  if (sr && si && !sr.contains(e.target) && e.target !== si) {
+    sr.style.display = 'none';
+  }
+});
 </script>
 </body>
 </html>
