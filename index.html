@@ -2779,7 +2779,7 @@ async function shopifyImportProducts() {
     const byVariant = {}, byName = {}, byBarcode = {};
     (existingAll||[]).forEach(e => {
       if (e.shopify_variant_id) byVariant[String(e.shopify_variant_id)] = e;
-      if (e.name) byName[e.name.trim().toLowerCase()] = e;
+      if (e.name) byName[normName(e.name)] = e;
       if (e.barcode) byBarcode[e.barcode] = e;
     });
     let imported = 0, linked = 0;
@@ -2787,7 +2787,7 @@ async function shopifyImportProducts() {
       const variant = p.variants[0];
       if (!variant) continue;
       const realBarcode = variant.barcode || variant.sku || '';
-      const nameKey = (p.title||'').trim().toLowerCase();
+      const nameKey = normName(p.title);
       // Cerca un prodotto già esistente: per variante Shopify, poi barcode reale, poi nome
       const existing = byVariant[String(variant.id)]
         || (realBarcode && byBarcode[realBarcode])
@@ -2826,36 +2826,59 @@ async function shopifyImportProducts() {
   }
 }
 
-// Unisce i prodotti doppi: per ogni prodotto importato da Shopify che ha un
-// "gemello" con lo stesso nome già presente (senza link Shopify), trasferisce
-// il collegamento all'originale e cancella la copia. Tiene la scorta del gestionale.
+// Normalizza un nome per confronti "tolleranti": minuscole, niente accenti,
+// niente punteggiatura, spazi singoli.
+function normName(s) {
+  return (s||'').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'')
+    .replace(/[^a-z0-9]+/g,' ').trim();
+}
+
+// Unisce i prodotti doppi raggruppando per nome "normalizzato". Per ogni gruppo
+// tiene UNA sola riga (preferendo quella con barcode reale / più venduta / più id
+// basso), le trasferisce il collegamento Shopify e cancella le altre. La scorta
+// della riga tenuta resta invariata (il gestionale comanda). Mostra un'anteprima.
 async function shopifyDedup() {
-  if (!confirm('Unisco i prodotti doppi creati dall\'importazione con quelli che avevi già (stesso nome), tenendo la scorta del gestionale e collegandoli a Shopify. Continuare?')) return;
-  toast('Pulizia doppioni...','warning');
+  toast('Analisi doppioni...','warning');
   try {
     const { data: all } = await sb.from('products').select('*');
     const list = all || [];
-    const byName = {};
-    list.forEach(p => { const k=(p.name||'').trim().toLowerCase(); (byName[k]=byName[k]||[]).push(p); });
-    let removed = 0, linked = 0;
-    for (const p of list) {
-      if (!p.shopify_variant_id) continue; // considero solo le copie importate
-      const k = (p.name||'').trim().toLowerCase();
-      const original = (byName[k]||[]).find(x => x.id !== p.id && !x.shopify_variant_id);
-      if (original) {
-        await sb.from('products').update({
-          shopify_product_id: p.shopify_product_id,
-          shopify_variant_id: p.shopify_variant_id,
-          updated_at: new Date().toISOString()
-        }).eq('id', original.id);
-        await sb.from('products').delete().eq('id', p.id);
-        original.shopify_variant_id = p.shopify_variant_id; // evita doppie associazioni
-        removed++; linked++;
-      }
+    const groups = {};
+    list.forEach(p => { const k = normName(p.name); if (!k) return; (groups[k]=groups[k]||[]).push(p); });
+    const dupGroups = Object.keys(groups).map(k=>groups[k]).filter(g => g.length > 1);
+    if (!dupGroups.length) {
+      document.getElementById('sh-sync-result').innerHTML = '<span style="color:var(--text2);">Nessun doppione trovato.</span>';
+      toast('Nessun doppione trovato');
+      return;
     }
-    await logActivity('Pulizia doppioni Shopify: ' + removed + ' rimossi', 'shopify');
-    toast(removed + ' doppioni rimossi, ' + linked + ' prodotti collegati');
-    document.getElementById('sh-sync-result').innerHTML = '<span style="color:var(--success);">✅ ' + removed + ' doppioni rimossi e collegati a Shopify</span>';
+    const toRemove = dupGroups.reduce((s,g)=>s + g.length - 1, 0);
+    const examples = dupGroups.slice(0,6).map(g => g[0].name).join('\n• ');
+    if (!confirm('Trovati ' + dupGroups.length + ' prodotti in doppia copia (' + toRemove + ' righe da rimuovere).\n\nEsempi:\n• ' + examples + '\n\nTengo una sola riga per prodotto (con la sua scorta) e il collegamento a Shopify. Continuare?')) {
+      document.getElementById('sh-sync-result').innerHTML = '<span style="color:var(--text2);">Annullato. (' + dupGroups.length + ' doppioni trovati)</span>';
+      return;
+    }
+    let removed = 0, linked = 0;
+    for (const g of dupGroups) {
+      g.sort((a,b) => {
+        const ar = a.barcode && !String(a.barcode).startsWith('SH-') ? 1 : 0;
+        const br = b.barcode && !String(b.barcode).startsWith('SH-') ? 1 : 0;
+        if (ar !== br) return br - ar;
+        if ((b.sold||0) !== (a.sold||0)) return (b.sold||0) - (a.sold||0);
+        return (a.id||0) - (b.id||0);
+      });
+      const keep = g[0];
+      const withLink = g.find(x => x.shopify_variant_id);
+      const upd = { updated_at: new Date().toISOString() };
+      if (withLink && !keep.shopify_variant_id) {
+        upd.shopify_product_id = withLink.shopify_product_id;
+        upd.shopify_variant_id = withLink.shopify_variant_id;
+        linked++;
+      }
+      await sb.from('products').update(upd).eq('id', keep.id);
+      for (const d of g.slice(1)) { await sb.from('products').delete().eq('id', d.id); removed++; }
+    }
+    await logActivity('Pulizia doppioni: ' + removed + ' rimossi, ' + linked + ' collegati', 'shopify');
+    toast(removed + ' doppioni rimossi');
+    document.getElementById('sh-sync-result').innerHTML = '<span style="color:var(--success);">✅ ' + removed + ' doppioni rimossi (' + linked + ' collegati a Shopify)</span>';
     if (typeof loadProducts === 'function') loadProducts();
     loadShopifyLinked();
   } catch(e) {
