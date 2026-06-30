@@ -815,15 +815,9 @@ tr:hover td{background:var(--gold-glow);}
     <div>
       <div class="card" style="margin-bottom:16px;">
         <div class="card-title"><i class="ti ti-settings"></i> Configurazione</div>
-        <div class="form-g">
-          <label>Nome store Shopify</label>
-          <input type="text" id="sh-store" placeholder="es. sahacollection" oninput="saveShopifyConfig()">
-          <div style="font-size:11px;color:var(--text3);margin-top:4px;">Solo il nome, senza .myshopify.com</div>
-        </div>
-        <div class="form-g">
-          <label>Access Token (Admin API)</label>
-          <input type="password" id="sh-token" placeholder="shpat_..." oninput="saveShopifyConfig()">
-          <div style="font-size:11px;color:var(--text3);margin-top:4px;">Lo trovi in Shopify Admin → Impostazioni → App → Sviluppa app</div>
+        <div style="font-size:13px;color:var(--text2);line-height:1.7;margin-bottom:10px;">
+          Lo store e il token Shopify sono configurati <strong>in modo sicuro sul server</strong>
+          (Supabase Edge Function), non nel browser. Qui verifichi solo che il collegamento funzioni.
         </div>
         <div style="display:flex;gap:8px;margin-top:10px;">
           <button class="btn btn-gold" onclick="testShopifyConn()"><i class="ti ti-plug"></i> Testa connessione</button>
@@ -833,14 +827,11 @@ tr:hover td{background:var(--gold-glow);}
       </div>
 
       <div class="card">
-        <div class="card-title"><i class="ti ti-info-circle"></i> Guida configurazione</div>
+        <div class="card-title"><i class="ti ti-info-circle"></i> Stato integrazione</div>
         <div style="font-size:13px;color:var(--text2);line-height:1.8;">
-          <p><strong>1.</strong> Vai su <code>admin.shopify.com</code></p>
-          <p><strong>2.</strong> Impostazioni → App → Sviluppa app</p>
-          <p><strong>3.</strong> Crea un'app → Configurazione → Ambiti API Admin</p>
-          <p><strong>4.</strong> Abilita: <code>read_products</code>, <code>write_products</code>, <code>read_inventory</code>, <code>write_inventory</code>, <code>read_orders</code></p>
-          <p><strong>5.</strong> Installa l'app → Copia il token <code>shpat_...</code></p>
-          <p><strong>6.</strong> Incollalo qui sopra</p>
+          <p>L'app Shopify è collegata tramite la Edge Function <code>shopify-proxy</code>.</p>
+          <p>Premi <strong>Testa connessione</strong>: se diventa verde, sei collegato.</p>
+          <p>Poi puoi usare <strong>Importa prodotti</strong>, <strong>Invia stock</strong> e <strong>Scarica ordini</strong>.</p>
         </div>
       </div>
     </div>
@@ -2709,14 +2700,26 @@ function printLabel(productId) {
 let shopifyConfig = JSON.parse(localStorage.getItem('saha_shopify') || '{}');
 
 function saveShopifyConfig() {
-  shopifyConfig.store = (document.getElementById('sh-store').value||'').trim();
-  shopifyConfig.token = (document.getElementById('sh-token').value||'').trim();
+  // Store e token ora vivono come secret sul server (Edge Function): qui non serve più nulla.
   localStorage.setItem('saha_shopify', JSON.stringify(shopifyConfig));
 }
 
+// Chiama l'Admin API di Shopify PASSANDO dalla Edge Function "shopify-proxy"
+// (risolve CORS e tiene il token al sicuro lato server).
+async function shopifyApi(path, method, body) {
+  const { data, error } = await sb.functions.invoke('shopify-proxy', {
+    body: { path: path, method: method || 'GET', body: body || null }
+  });
+  if (error) {
+    let detail = error.message || 'Errore proxy Shopify';
+    try { const ctx = await error.context?.json?.(); if (ctx?.error) detail = ctx.error; } catch(_) {}
+    throw new Error(detail);
+  }
+  if (data && data.error) throw new Error(data.error);
+  return data;
+}
+
 function loadShopifyUI() {
-  document.getElementById('sh-store').value = shopifyConfig.store || '';
-  document.getElementById('sh-token').value = shopifyConfig.token || '';
   updateShopifyStatus();
   loadShopifyLinked();
 }
@@ -2732,17 +2735,11 @@ function updateShopifyStatus() {
 }
 
 async function testShopifyConn() {
-  const store = shopifyConfig.store;
-  const token = shopifyConfig.token;
-  if (!store || !token) { toast('Inserisci store e token','warning'); return; }
   const res = document.getElementById('sh-conn-result');
   res.innerHTML = '<span style="color:var(--text2);">Connessione in corso...</span>';
   try {
-    const r = await fetch('https://' + store + '.myshopify.com/admin/api/2024-10/shop.json', {
-      headers: { 'X-Shopify-Access-Token': token, 'Content-Type': 'application/json' }
-    });
-    if (!r.ok) throw new Error('Status ' + r.status);
-    const data = await r.json();
+    const data = await shopifyApi('shop.json');
+    if (!data || !data.shop) throw new Error('Risposta inattesa da Shopify');
     shopifyConfig.connected = true;
     shopifyConfig.shopName = data.shop.name;
     localStorage.setItem('saha_shopify', JSON.stringify(shopifyConfig));
@@ -2772,10 +2769,7 @@ async function shopifyImportProducts() {
   if (!shopifyConfig.connected) return;
   toast('Importazione prodotti Shopify...','warning');
   try {
-    const r = await fetch('https://' + shopifyConfig.store + '.myshopify.com/admin/api/2024-10/products.json?limit=250', {
-      headers: { 'X-Shopify-Access-Token': shopifyConfig.token }
-    });
-    const data = await r.json();
+    const data = await shopifyApi('products.json?limit=250');
     const products = data.products || [];
     let imported = 0;
     for (const p of products) {
@@ -2814,27 +2808,19 @@ async function shopifySendStock() {
     const { data: prods } = await sb.from('products').select('*').neq('shopify_variant_id','').not('shopify_variant_id','is',null);
     let updated = 0;
     // Get location
-    const locR = await fetch('https://' + shopifyConfig.store + '.myshopify.com/admin/api/2024-10/locations.json', {
-      headers: { 'X-Shopify-Access-Token': shopifyConfig.token }
-    });
-    const locData = await locR.json();
+    const locData = await shopifyApi('locations.json');
     const locationId = locData.locations?.[0]?.id;
     if (!locationId) { toast('Location non trovata','danger'); return; }
-    
+
     for (const p of (prods||[])) {
       if (!p.shopify_variant_id) continue;
       // Get inventory item ID
-      const vr = await fetch('https://' + shopifyConfig.store + '.myshopify.com/admin/api/2024-10/variants/' + p.shopify_variant_id + '.json', {
-        headers: { 'X-Shopify-Access-Token': shopifyConfig.token }
-      });
-      const vd = await vr.json();
+      const vd = await shopifyApi('variants/' + p.shopify_variant_id + '.json');
       const invId = vd.variant?.inventory_item_id;
       if (!invId) continue;
-      
-      await fetch('https://' + shopifyConfig.store + '.myshopify.com/admin/api/2024-10/inventory_levels/set.json', {
-        method: 'POST',
-        headers: { 'X-Shopify-Access-Token': shopifyConfig.token, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ location_id: locationId, inventory_item_id: invId, available: p.qty })
+
+      await shopifyApi('inventory_levels/set.json', 'POST', {
+        location_id: locationId, inventory_item_id: invId, available: p.qty
       });
       updated++;
     }
@@ -2850,10 +2836,7 @@ async function shopifyFetchOrders() {
   if (!shopifyConfig.connected) return;
   toast('Scaricamento ordini Shopify...','warning');
   try {
-    const r = await fetch('https://' + shopifyConfig.store + '.myshopify.com/admin/api/2024-10/orders.json?status=any&limit=50', {
-      headers: { 'X-Shopify-Access-Token': shopifyConfig.token }
-    });
-    const data = await r.json();
+    const data = await shopifyApi('orders.json?status=any&limit=50');
     const orders = data.orders || [];
     let processed = 0;
     for (const o of orders) {
