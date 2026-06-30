@@ -849,6 +849,9 @@ tr:hover td{background:var(--gold-glow);}
           <button class="btn btn-outline" onclick="shopifyFetchOrders()" id="sh-orders-btn" disabled>
             <i class="ti ti-shopping-cart"></i> Scarica ordini Shopify
           </button>
+          <button class="btn btn-outline" onclick="shopifyDedup()" id="sh-dedup-btn" style="border-color:var(--danger);color:var(--danger);">
+            <i class="ti ti-eraser"></i> Pulisci doppioni
+          </button>
         </div>
         <div id="sh-sync-result" style="margin-top:10px;font-size:13px;"></div>
       </div>
@@ -2771,19 +2774,39 @@ async function shopifyImportProducts() {
   try {
     const data = await shopifyApi('products.json?limit=250');
     const products = data.products || [];
-    let imported = 0;
+    // Carico una volta i prodotti esistenti per fare il match (no duplicati)
+    const { data: existingAll } = await sb.from('products').select('id,name,barcode,shopify_variant_id,qty,sold');
+    const byVariant = {}, byName = {}, byBarcode = {};
+    (existingAll||[]).forEach(e => {
+      if (e.shopify_variant_id) byVariant[String(e.shopify_variant_id)] = e;
+      if (e.name) byName[e.name.trim().toLowerCase()] = e;
+      if (e.barcode) byBarcode[e.barcode] = e;
+    });
+    let imported = 0, linked = 0;
     for (const p of products) {
       const variant = p.variants[0];
       if (!variant) continue;
-      // Codice: usa barcode/SKU di Shopify; se manca, codice interno univoco
-      const barcode = variant.barcode || variant.sku || ('SH-' + variant.id);
-      // Evita duplicati controllando la variante Shopify (non il barcode)
-      const { data: existing } = await sb.from('products').select('id').eq('shopify_variant_id', String(variant.id)).maybeSingle();
-      if (!existing) {
+      const realBarcode = variant.barcode || variant.sku || '';
+      const nameKey = (p.title||'').trim().toLowerCase();
+      // Cerca un prodotto già esistente: per variante Shopify, poi barcode reale, poi nome
+      const existing = byVariant[String(variant.id)]
+        || (realBarcode && byBarcode[realBarcode])
+        || byName[nameKey];
+      if (existing) {
+        // Collego al prodotto esistente SENZA toccare la scorta (il gestionale comanda)
+        await sb.from('products').update({
+          shopify_product_id: String(p.id),
+          shopify_variant_id: String(variant.id),
+          updated_at: new Date().toISOString()
+        }).eq('id', existing.id);
+        existing.shopify_variant_id = String(variant.id);
+        linked++;
+      } else {
+        // Prodotto nuovo: codice interno se manca il barcode
         await sb.from('products').insert({
           name: p.title,
           brand: p.vendor || '',
-          barcode: barcode,
+          barcode: realBarcode || ('SH-' + variant.id),
           cat: p.product_type || 'Unisex',
           price: parseFloat(variant.price) || 0,
           qty: variant.inventory_quantity || 0,
@@ -2794,12 +2817,49 @@ async function shopifyImportProducts() {
         imported++;
       }
     }
-    await logActivity('Importati ' + imported + ' prodotti da Shopify', 'shopify');
-    toast('Importati ' + imported + ' prodotti da Shopify!');
-    document.getElementById('sh-sync-result').innerHTML = '<span style="color:var(--success);">✅ ' + imported + ' prodotti importati</span>';
+    await logActivity('Shopify import: ' + imported + ' nuovi, ' + linked + ' collegati', 'shopify');
+    toast(imported + ' nuovi, ' + linked + ' collegati');
+    document.getElementById('sh-sync-result').innerHTML = '<span style="color:var(--success);">✅ ' + imported + ' importati, ' + linked + ' già esistenti collegati</span>';
     loadShopifyLinked();
   } catch(e) {
     toast('Errore importazione: ' + e.message, 'danger');
+  }
+}
+
+// Unisce i prodotti doppi: per ogni prodotto importato da Shopify che ha un
+// "gemello" con lo stesso nome già presente (senza link Shopify), trasferisce
+// il collegamento all'originale e cancella la copia. Tiene la scorta del gestionale.
+async function shopifyDedup() {
+  if (!confirm('Unisco i prodotti doppi creati dall\'importazione con quelli che avevi già (stesso nome), tenendo la scorta del gestionale e collegandoli a Shopify. Continuare?')) return;
+  toast('Pulizia doppioni...','warning');
+  try {
+    const { data: all } = await sb.from('products').select('*');
+    const list = all || [];
+    const byName = {};
+    list.forEach(p => { const k=(p.name||'').trim().toLowerCase(); (byName[k]=byName[k]||[]).push(p); });
+    let removed = 0, linked = 0;
+    for (const p of list) {
+      if (!p.shopify_variant_id) continue; // considero solo le copie importate
+      const k = (p.name||'').trim().toLowerCase();
+      const original = (byName[k]||[]).find(x => x.id !== p.id && !x.shopify_variant_id);
+      if (original) {
+        await sb.from('products').update({
+          shopify_product_id: p.shopify_product_id,
+          shopify_variant_id: p.shopify_variant_id,
+          updated_at: new Date().toISOString()
+        }).eq('id', original.id);
+        await sb.from('products').delete().eq('id', p.id);
+        original.shopify_variant_id = p.shopify_variant_id; // evita doppie associazioni
+        removed++; linked++;
+      }
+    }
+    await logActivity('Pulizia doppioni Shopify: ' + removed + ' rimossi', 'shopify');
+    toast(removed + ' doppioni rimossi, ' + linked + ' prodotti collegati');
+    document.getElementById('sh-sync-result').innerHTML = '<span style="color:var(--success);">✅ ' + removed + ' doppioni rimossi e collegati a Shopify</span>';
+    if (typeof loadProducts === 'function') loadProducts();
+    loadShopifyLinked();
+  } catch(e) {
+    toast('Errore pulizia: ' + e.message, 'danger');
   }
 }
 
