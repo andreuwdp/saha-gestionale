@@ -2993,12 +2993,14 @@ const SH_NOISE = new Set(['ml','cl','eau','de','parfum','edp','edt','toilette','
 // "Nocciolo" del nome: minuscole, niente accenti/punteggiatura, tolte le parole di
 // contorno e i numeri di volume (50, 100, 100ml...), token ordinati. Le cifre
 // singole (es. "9" di "9 AM") restano perché distinguono il prodotto.
-function shopifyCoreKey(name) {
+function shopifyCoreTokens(name) {
   return normName(name).split(' ')
     .filter(t => t && !SH_NOISE.has(t))
     .filter(t => !/^\d+ml$/.test(t))      // 100ml, 50ml
-    .filter(t => !/^\d{2,4}$/.test(t))    // volumi 30/50/100 (tengo cifre singole)
-    .sort().join(' ');
+    .filter(t => !/^\d{2,4}$/.test(t));   // volumi 30/50/100 (tengo cifre singole)
+}
+function shopifyCoreKey(name) {
+  return shopifyCoreTokens(name).slice().sort().join(' ');
 }
 
 // Scarica TUTTI i prodotti di Shopify con paginazione via since_id (non serve
@@ -3038,12 +3040,21 @@ async function shopifyExportAnalyze() {
     const shopProds = await shopifyFetchAllProducts((n) => { progress = '   → ' + n + ' scaricati...'; render(); });
     step('   → ' + shopProds.length + ' prodotti su Shopify.');
 
-    // Indici di ciò che esiste già su Shopify: per nome-nocciolo e per barcode.
-    const shopKeys = new Set(), shopBarcodes = new Set();
-    shopProds.forEach(sp => {
-      const k = shopifyCoreKey(sp.title); if (k) shopKeys.add(k);
+    // Indici di ciò che esiste già su Shopify. NB: i prodotti Shopify spesso NON
+    // hanno barcode, quindi il match si regge sul nome. Costruisco per ogni
+    // prodotto Shopify l'insieme delle sue parole-chiave (titolo + brand/vendor),
+    // così posso verificare se il nome (più corto) del gestionale è CONTENUTO lì.
+    const shopBarcodes = new Set();
+    const shopSets = shopProds.map(sp => {
       (sp.variants || []).forEach(v => { if (v.barcode) shopBarcodes.add(String(v.barcode)); if (v.sku) shopBarcodes.add(String(v.sku)); });
+      return new Set(shopifyCoreTokens((sp.title || '') + ' ' + (sp.vendor || '')));
     });
+    // Match per SOTTOINSIEME: il gestionale è presente se tutte le sue parole-chiave
+    // compaiono nel titolo di un prodotto Shopify (es. "king arabia" ⊆ "king arabia lattafa 100ml").
+    const existsOnShopify = (tokens) => {
+      if (!tokens.length) return false;
+      return shopSets.some(set => tokens.every(t => set.has(t)));
+    };
 
     step('3) Confronto e individuo i mancanti...');
     // Raggruppo le righe del gestionale per nome-nocciolo (1 prodotto reale = 1 gruppo).
@@ -3055,9 +3066,9 @@ async function shopifyExportAnalyze() {
       const g = groups[k];
       const realBc = g.map(p => p.barcode).filter(b => b && !String(b).startsWith('SH-'));
       const alreadyLinked = g.some(p => p.shopify_variant_id);
-      const byKey = shopKeys.has(k);
+      const byName = existsOnShopify(shopifyCoreTokens(g[0].name));
       const byBarcode = realBc.some(b => shopBarcodes.has(String(b)));
-      if (alreadyLinked || byKey || byBarcode) { present++; return; }
+      if (alreadyLinked || byName || byBarcode) { present++; return; }
       // Mancante: scelgo la riga "migliore" da creare (barcode reale > più scorta > id basso).
       g.sort((a, b) => {
         const ar = a.barcode && !String(a.barcode).startsWith('SH-') ? 1 : 0;
@@ -3074,7 +3085,7 @@ async function shopifyExportAnalyze() {
     if (!plan.length) { step('✅ Niente da creare: il gestionale è già tutto su Shopify.'); toast('Nessun prodotto mancante'); return; }
 
     // Anteprima con spunte: l'utente sceglie cosa creare davvero.
-    let html = '<div style="font-size:13px;margin-bottom:8px;"><b>' + plan.length + ' prodotti da creare su Shopify</b> (' + present + ' già presenti). Controlla la lista e togli la spunta a quelli che NON vuoi creare:</div>';
+    let html = '<div style="font-size:13px;margin-bottom:8px;"><b>' + plan.length + ' prodotti da creare su Shopify</b> (' + present + ' già presenti). Saranno creati come <b>BOZZA</b> (non visibili ai clienti) con prezzo, brand e scorta — aggiungerai foto/descrizioni e li pubblicherai da Shopify. Togli la spunta a quelli che NON vuoi creare:</div>';
     html += '<div style="max-height:240px;overflow:auto;border:1px solid var(--line,#ddd);border-radius:8px;padding:8px;">';
     plan.forEach((p, i) => {
       const bc = p.barcode && !String(p.barcode).startsWith('SH-') ? (' · ' + p.barcode) : '';
@@ -3097,8 +3108,10 @@ async function shopifyCreateProduct(p, locationId) {
   const realBc = p.barcode && !String(p.barcode).startsWith('SH-') ? String(p.barcode) : undefined;
   const variant = { price: String(p.price || 0), inventory_management: 'shopify' };
   if (realBc) variant.barcode = realBc;
+  // status 'draft': creati come BOZZA, NON visibili ai clienti finché non aggiungi
+  // foto/descrizioni e li pubblichi a mano da Shopify (sono privi di immagini).
   const res = await shopifyApi('products.json', 'POST', { product: {
-    title: p.name, vendor: p.brand || '', product_type: p.cat || '', status: 'active',
+    title: p.name, vendor: p.brand || '', product_type: p.cat || '', status: 'draft',
     variants: [variant]
   }});
   const prod = res && res.product;
@@ -3122,7 +3135,7 @@ async function shopifyExportConfirm() {
   const checks = Array.from(document.querySelectorAll('.sh-exp-chk'));
   const chosen = checks.filter(c => c.checked).map(c => _shExportPlan[parseInt(c.dataset.i, 10)]).filter(Boolean);
   if (!chosen.length) { toast('Nessun prodotto selezionato', 'warning'); return; }
-  if (!confirm('Creo ' + chosen.length + ' nuovi prodotti su Shopify. Continuare?')) return;
+  if (!confirm('Creo ' + chosen.length + ' nuovi prodotti su Shopify come BOZZA (non visibili ai clienti finché non li pubblichi tu). Continuare?')) return;
   const log = []; let progress = '';
   const render = () => { out.innerHTML = '<pre style="white-space:pre-wrap;color:var(--text2);font-size:12px;margin:0;">' + (log.join('\n') + (progress ? '\n' + progress : '')) + '</pre>'; };
   const step = (m) => { log.push(m); progress = ''; render(); };
