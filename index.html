@@ -2886,32 +2886,46 @@ async function shopifyDedup() {
   }
 }
 
+// Ritorna l'id della sede Shopify (in cache).
+async function getShopifyLocationId() {
+  if (shopifyConfig._locId) return shopifyConfig._locId;
+  const locData = await shopifyApi('locations.json');
+  shopifyConfig._locId = locData.locations && locData.locations[0] && locData.locations[0].id;
+  return shopifyConfig._locId;
+}
+
+// Invia a Shopify la scorta di UN prodotto del gestionale. Ritorna true se aggiornato.
+async function pushStockOne(p, locationId) {
+  if (!p || !p.shopify_variant_id) return false;
+  let invId = p.shopify_inventory_item_id;
+  if (!invId) {
+    const vd = await shopifyApi('variants/' + p.shopify_variant_id + '.json');
+    invId = vd && vd.variant && vd.variant.inventory_item_id;
+  }
+  if (!invId) return false;
+  const qty = Math.max(0, Math.round(Number(p.qty) || 0));
+  await shopifyApi('inventory_levels/set.json', 'POST', {
+    location_id: locationId, inventory_item_id: invId, available: qty
+  });
+  return true;
+}
+
 async function shopifySendStock() {
   if (!shopifyConfig.connected) return;
   toast('Invio stock a Shopify...','warning');
   try {
-    const { data: prods } = await sb.from('products').select('*').neq('shopify_variant_id','').not('shopify_variant_id','is',null);
-    let updated = 0;
-    // Get location
-    const locData = await shopifyApi('locations.json');
-    const locationId = locData.locations?.[0]?.id;
+    const { data: prods } = await sb.from('products').select('*').not('shopify_variant_id','is',null);
+    const locationId = await getShopifyLocationId();
     if (!locationId) { toast('Location non trovata','danger'); return; }
-
+    let updated = 0, failed = 0;
     for (const p of (prods||[])) {
       if (!p.shopify_variant_id) continue;
-      // Get inventory item ID
-      const vd = await shopifyApi('variants/' + p.shopify_variant_id + '.json');
-      const invId = vd.variant?.inventory_item_id;
-      if (!invId) continue;
-
-      await shopifyApi('inventory_levels/set.json', 'POST', {
-        location_id: locationId, inventory_item_id: invId, available: p.qty
-      });
-      updated++;
+      try { if (await pushStockOne(p, locationId)) updated++; else failed++; }
+      catch(e) { failed++; }
     }
-    await logActivity('Stock inviato a Shopify: ' + updated + ' prodotti', 'shopify');
-    toast('Stock aggiornato su Shopify: ' + updated + ' prodotti!');
-    document.getElementById('sh-sync-result').innerHTML = '<span style="color:var(--success);">✅ ' + updated + ' stock aggiornati</span>';
+    await logActivity('Stock inviato a Shopify: ' + updated + ' ok, ' + failed + ' saltati', 'shopify');
+    toast('Stock aggiornato: ' + updated + (failed ? ' (saltati ' + failed + ')' : ''));
+    document.getElementById('sh-sync-result').innerHTML = '<span style="color:var(--success);">✅ ' + updated + ' stock aggiornati' + (failed ? ' · ' + failed + ' saltati' : '') + '</span>';
   } catch(e) {
     toast('Errore invio stock: ' + e.message, 'danger');
   }
