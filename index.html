@@ -2709,7 +2709,7 @@ function saveShopifyConfig() {
 
 // Chiama l'Admin API di Shopify PASSANDO dalla Edge Function "shopify-proxy"
 // (risolve CORS e tiene il token al sicuro lato server).
-async function shopifyApi(path, method, body) {
+async function shopifyApi(path, method, body, _retry) {
   const { data, error } = await sb.functions.invoke('shopify-proxy', {
     body: { path: path, method: method || 'GET', body: body || null }
   });
@@ -2718,19 +2718,25 @@ async function shopifyApi(path, method, body) {
     // status code") da solo non dice nulla. Leggiamo path, status HTTP e CORPO
     // della risposta del proxy, che contiene il vero motivo dell'errore.
     let detail = error.message || 'Errore proxy Shopify';
-    let status = '';
+    let status = 0, bodyTxt = '';
     try {
       const resp = error.context;
       if (resp) {
-        if (resp.status) status = ' [HTTP ' + resp.status + ']';
+        status = resp.status || 0;
         const txt = await resp.text();
         if (txt) {
+          bodyTxt = txt;
           try { const j = JSON.parse(txt); detail = j.error || j.message || txt; }
           catch(_) { detail = txt; }
         }
       }
     } catch(_) {}
-    throw new Error('shopifyApi(' + path + ')' + status + ': ' + detail);
+    // Rate limit di Shopify (~2 req/s): non fallire, aspetta e riprova.
+    if ((status === 429 || /\b429\b|rate limit|throttl/i.test(bodyTxt)) && (_retry || 0) < 5) {
+      await new Promise(r => setTimeout(r, 1500 * ((_retry || 0) + 1)));
+      return shopifyApi(path, method, body, (_retry || 0) + 1);
+    }
+    throw new Error('shopifyApi(' + path + ')' + (status ? ' [HTTP ' + status + ']' : '') + ': ' + detail);
   }
   if (data && data.error) throw new Error('shopifyApi(' + path + '): ' + data.error);
   return data;
@@ -2915,6 +2921,9 @@ async function pushStockOne(p, locationId) {
   if (!invId) {
     const vd = await shopifyApi('variants/' + p.shopify_variant_id + '.json');
     invId = vd && vd.variant && vd.variant.inventory_item_id;
+    // Salva l'id per le volte successive (se la colonna esiste; altrimenti
+    // l'update fallisce in silenzio senza bloccare l'invio).
+    if (invId) { try { await sb.from('products').update({ shopify_inventory_item_id: String(invId) }).eq('id', p.id); } catch(_) {} }
   }
   if (!invId) return false;
   const qty = Math.max(0, Math.round(Number(p.qty) || 0));
@@ -2928,33 +2937,40 @@ async function shopifySendStock() {
   if (!shopifyConfig.connected) return;
   const out = document.getElementById('sh-sync-result');
   const log = [];
-  const step = (m) => {
-    log.push(m);
-    out.innerHTML = '<pre style="white-space:pre-wrap;color:var(--text2);font-size:12px;margin:0;">' + log.join('\n') + '</pre>';
+  let progress = '';
+  const render = () => {
+    out.innerHTML = '<pre style="white-space:pre-wrap;color:var(--text2);font-size:12px;margin:0;">' + (log.join('\n') + (progress ? '\n' + progress : '')) + '</pre>';
   };
+  const step = (m) => { log.push(m); progress = ''; render(); };
   toast('Invio stock a Shopify...','warning');
   try {
     step('1) Leggo dal gestionale i prodotti collegati a Shopify...');
     const { data: prods, error: qErr } = await sb.from('products').select('*').not('shopify_variant_id','is',null);
     if (qErr) throw new Error('Query prodotti Supabase: ' + qErr.message);
-    step('   → ' + (prods ? prods.length : 0) + ' prodotti collegati trovati.');
+    const linked = (prods||[]).filter(p => p.shopify_variant_id);
+    step('   → ' + linked.length + ' prodotti collegati trovati.');
 
     step('2) Recupero la sede (location) Shopify [locations.json]...');
     const locationId = await getShopifyLocationId();
     if (!locationId) throw new Error('Nessuna location Shopify trovata');
     step('   → location_id = ' + locationId);
 
-    step('3) Invio le scorte una per una...');
+    step('3) Invio le scorte una per una (' + linked.length + ')...');
     let updated = 0, failed = 0; const errs = [];
-    for (const p of (prods||[])) {
-      if (!p.shopify_variant_id) continue;
+    for (let i = 0; i < linked.length; i++) {
+      const p = linked[i];
       try {
         if (await pushStockOne(p, locationId)) updated++;
         else { failed++; errs.push((p.name||('#'+p.id)) + ': nessun inventory_item_id'); }
       }
       catch(e) { failed++; errs.push((p.name||('#'+p.id)) + ': ' + e.message); }
+      if (i % 5 === 0 || i === linked.length - 1) {
+        progress = '   → ' + (i + 1) + '/' + linked.length + ' (ok ' + updated + ', saltati ' + failed + ')';
+        render();
+      }
     }
-    step('   → ' + updated + ' aggiornati, ' + failed + ' saltati.');
+    progress = '';
+    step('   → completato: ' + updated + ' aggiornati, ' + failed + ' saltati.');
     if (errs.length) step('Dettagli saltati (primi 10):\n  - ' + errs.slice(0,10).join('\n  - '));
     step('✅ Fatto.');
     await logActivity('Stock inviato a Shopify: ' + updated + ' ok, ' + failed + ' saltati', 'shopify');
