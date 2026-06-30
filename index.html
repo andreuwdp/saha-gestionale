@@ -2714,11 +2714,25 @@ async function shopifyApi(path, method, body) {
     body: { path: path, method: method || 'GET', body: body || null }
   });
   if (error) {
+    // Diagnostica: il messaggio di Supabase ("Edge Function returned a non-2xx
+    // status code") da solo non dice nulla. Leggiamo path, status HTTP e CORPO
+    // della risposta del proxy, che contiene il vero motivo dell'errore.
     let detail = error.message || 'Errore proxy Shopify';
-    try { const ctx = await error.context?.json?.(); if (ctx?.error) detail = ctx.error; } catch(_) {}
-    throw new Error(detail);
+    let status = '';
+    try {
+      const resp = error.context;
+      if (resp) {
+        if (resp.status) status = ' [HTTP ' + resp.status + ']';
+        const txt = await resp.text();
+        if (txt) {
+          try { const j = JSON.parse(txt); detail = j.error || j.message || txt; }
+          catch(_) { detail = txt; }
+        }
+      }
+    } catch(_) {}
+    throw new Error('shopifyApi(' + path + ')' + status + ': ' + detail);
   }
-  if (data && data.error) throw new Error(data.error);
+  if (data && data.error) throw new Error('shopifyApi(' + path + '): ' + data.error);
   return data;
 }
 
@@ -2912,21 +2926,41 @@ async function pushStockOne(p, locationId) {
 
 async function shopifySendStock() {
   if (!shopifyConfig.connected) return;
+  const out = document.getElementById('sh-sync-result');
+  const log = [];
+  const step = (m) => {
+    log.push(m);
+    out.innerHTML = '<pre style="white-space:pre-wrap;color:var(--text2);font-size:12px;margin:0;">' + log.join('\n') + '</pre>';
+  };
   toast('Invio stock a Shopify...','warning');
   try {
-    const { data: prods } = await sb.from('products').select('*').not('shopify_variant_id','is',null);
+    step('1) Leggo dal gestionale i prodotti collegati a Shopify...');
+    const { data: prods, error: qErr } = await sb.from('products').select('*').not('shopify_variant_id','is',null);
+    if (qErr) throw new Error('Query prodotti Supabase: ' + qErr.message);
+    step('   → ' + (prods ? prods.length : 0) + ' prodotti collegati trovati.');
+
+    step('2) Recupero la sede (location) Shopify [locations.json]...');
     const locationId = await getShopifyLocationId();
-    if (!locationId) { toast('Location non trovata','danger'); return; }
-    let updated = 0, failed = 0;
+    if (!locationId) throw new Error('Nessuna location Shopify trovata');
+    step('   → location_id = ' + locationId);
+
+    step('3) Invio le scorte una per una...');
+    let updated = 0, failed = 0; const errs = [];
     for (const p of (prods||[])) {
       if (!p.shopify_variant_id) continue;
-      try { if (await pushStockOne(p, locationId)) updated++; else failed++; }
-      catch(e) { failed++; }
+      try {
+        if (await pushStockOne(p, locationId)) updated++;
+        else { failed++; errs.push((p.name||('#'+p.id)) + ': nessun inventory_item_id'); }
+      }
+      catch(e) { failed++; errs.push((p.name||('#'+p.id)) + ': ' + e.message); }
     }
+    step('   → ' + updated + ' aggiornati, ' + failed + ' saltati.');
+    if (errs.length) step('Dettagli saltati (primi 10):\n  - ' + errs.slice(0,10).join('\n  - '));
+    step('✅ Fatto.');
     await logActivity('Stock inviato a Shopify: ' + updated + ' ok, ' + failed + ' saltati', 'shopify');
     toast('Stock aggiornato: ' + updated + (failed ? ' (saltati ' + failed + ')' : ''));
-    document.getElementById('sh-sync-result').innerHTML = '<span style="color:var(--success);">✅ ' + updated + ' stock aggiornati' + (failed ? ' · ' + failed + ' saltati' : '') + '</span>';
   } catch(e) {
+    step('❌ ERRORE allo step in corso: ' + e.message);
     toast('Errore invio stock: ' + e.message, 'danger');
   }
 }
