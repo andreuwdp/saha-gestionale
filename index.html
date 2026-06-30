@@ -2774,10 +2774,12 @@ async function shopifyImportProducts() {
     let imported = 0;
     for (const p of products) {
       const variant = p.variants[0];
-      const barcode = variant.barcode || variant.sku || '';
-      // Check if already exists
-      const { data: existing } = await sb.from('products').select('id').eq('barcode', barcode).single();
-      if (!existing && barcode) {
+      if (!variant) continue;
+      // Codice: usa barcode/SKU di Shopify; se manca, codice interno univoco
+      const barcode = variant.barcode || variant.sku || ('SH-' + variant.id);
+      // Evita duplicati controllando la variante Shopify (non il barcode)
+      const { data: existing } = await sb.from('products').select('id').eq('shopify_variant_id', String(variant.id)).maybeSingle();
+      if (!existing) {
         await sb.from('products').insert({
           name: p.title,
           brand: p.vendor || '',
