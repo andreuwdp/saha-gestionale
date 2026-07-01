@@ -852,6 +852,9 @@ tr:hover td{background:var(--gold-glow);}
           <button class="btn btn-outline" onclick="shopifyFetchOrders()" id="sh-orders-btn" disabled>
             <i class="ti ti-shopping-cart"></i> Scarica ordini Shopify
           </button>
+          <button class="btn btn-outline" onclick="shopifyRegisterWebhook()" id="sh-webhook-btn" disabled>
+            <i class="ti ti-bolt"></i> Attiva ordini in tempo reale (24/7)
+          </button>
           <button class="btn btn-outline" onclick="shopifyDeleteImported()" id="sh-delimport-btn" style="border-color:var(--danger);color:var(--danger);">
             <i class="ti ti-trash"></i> Elimina prodotti importati (SH-)
           </button>
@@ -2764,6 +2767,8 @@ function updateShopifyStatus() {
   document.getElementById('sh-orders-btn').disabled = !connected;
   const expBtn = document.getElementById('sh-export-btn');
   if (expBtn) expBtn.disabled = !connected;
+  const whBtn = document.getElementById('sh-webhook-btn');
+  if (whBtn) whBtn.disabled = !connected;
 }
 
 async function testShopifyConn() {
@@ -3293,6 +3298,39 @@ async function shopifyProcessOrders(silent) {
   }
   if (processed) await logActivity('Ordini Shopify sincronizzati: ' + processed + ' (scorte scalate: ' + decremented + (notFound ? ', non trovati: ' + notFound : '') + ')', 'shopify');
   return { processed, decremented, notFound };
+}
+
+// URL dell'edge function che riceve i webhook ordine (vedi saha-shopify-order-webhook).
+const SHOPIFY_WEBHOOK_URL = 'https://bewpeaxvxomgjwcijnec.supabase.co/functions/v1/shopify-order-webhook';
+
+// Registra su Shopify il webhook "orders/create" così ogni ordine, anche a negozio
+// CHIUSO, scala subito la scorta nel gestionale. Idempotente: se c'è già, non duplica.
+async function shopifyRegisterWebhook() {
+  if (!shopifyConfig.connected) return;
+  const out = document.getElementById('sh-sync-result');
+  out.innerHTML = '<span style="color:var(--text2);">Attivazione tempo reale...</span>';
+  toast('Attivazione webhook Shopify...', 'warning');
+  try {
+    // C'è già un webhook verso il nostro URL?
+    const list = await shopifyApi('webhooks.json?limit=250');
+    const existing = (list.webhooks || []).find(w => w.address === SHOPIFY_WEBHOOK_URL && w.topic === 'orders/create');
+    if (existing) {
+      out.innerHTML = '<span style="color:var(--success);">✅ Tempo reale GIÀ attivo (webhook #' + existing.id + ').</span>';
+      toast('Webhook già attivo');
+      return;
+    }
+    const res = await shopifyApi('webhooks.json', 'POST', {
+      webhook: { topic: 'orders/create', address: SHOPIFY_WEBHOOK_URL, format: 'json' }
+    });
+    const w = res && res.webhook;
+    if (!w || !w.id) throw new Error('Risposta inattesa: ' + JSON.stringify(res).slice(0, 200));
+    await logActivity('Webhook ordini Shopify attivato (#' + w.id + ')', 'shopify');
+    out.innerHTML = '<span style="color:var(--success);">✅ Tempo reale ATTIVATO. D\'ora in poi ogni ordine Shopify scala subito la scorta (webhook #' + w.id + ').</span>';
+    toast('Tempo reale attivato!');
+  } catch (e) {
+    out.innerHTML = '<span style="color:var(--danger);">❌ Attivazione fallita: ' + e.message + '</span><br><span style="font-size:12px;color:var(--text2);">Verifica che l\'edge function shopify-order-webhook sia deployata (Verify JWT SPENTO).</span>';
+    toast('Attivazione webhook fallita', 'danger');
+  }
 }
 
 async function shopifyFetchOrders() {
