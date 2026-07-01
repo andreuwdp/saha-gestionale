@@ -2994,10 +2994,12 @@ const SH_NOISE = new Set(['ml','cl','eau','de','parfum','edp','edt','toilette','
 // contorno e i numeri di volume (50, 100, 100ml...), token ordinati. Le cifre
 // singole (es. "9" di "9 AM") restano perché distinguono il prodotto.
 function shopifyCoreTokens(name) {
-  return normName(name).split(' ')
+  // Separo cifre e lettere attaccate cosi "9AM"→"9 am" e "100ml"→"100 ml":
+  // rende confrontabili gestionale "9 am afnan" e Shopify "Afnan 9AM ...".
+  const norm = normName(name).replace(/(\d)([a-z])/g, '$1 $2').replace(/([a-z])(\d)/g, '$1 $2');
+  return norm.split(' ')
     .filter(t => t && !SH_NOISE.has(t))
-    .filter(t => !/^\d+ml$/.test(t))      // 100ml, 50ml
-    .filter(t => !/^\d{2,4}$/.test(t));   // volumi 30/50/100 (tengo cifre singole)
+    .filter(t => !/^\d{2,4}$/.test(t));   // volumi 30/50/100 (tengo cifre singole come "9")
 }
 function shopifyCoreKey(name) {
   return shopifyCoreTokens(name).slice().sort().join(' ');
