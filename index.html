@@ -852,6 +852,9 @@ tr:hover td{background:var(--gold-glow);}
           <button class="btn btn-outline" onclick="shopifyFetchOrders()" id="sh-orders-btn" disabled>
             <i class="ti ti-shopping-cart"></i> Scarica ordini Shopify
           </button>
+          <button class="btn btn-outline" onclick="shopifyDeleteImported()" id="sh-delimport-btn" style="border-color:var(--danger);color:var(--danger);">
+            <i class="ti ti-trash"></i> Elimina prodotti importati (SH-)
+          </button>
           <button class="btn btn-outline" onclick="shopifyDedup()" id="sh-dedup-btn" style="border-color:var(--danger);color:var(--danger);">
             <i class="ti ti-eraser"></i> Pulisci doppioni
           </button>
@@ -2908,6 +2911,58 @@ async function shopifyDedup() {
     loadShopifyLinked();
   } catch(e) {
     toast('Errore pulizia: ' + e.message, 'danger');
+  }
+}
+
+// Elimina in blocco le righe importate da Shopify (barcode che inizia con "SH-").
+// Restano tutti i prodotti reali. Anteprima + conferma prima di cancellare.
+async function shopifyDeleteImported() {
+  const out = document.getElementById('sh-sync-result');
+  const log = []; let progress = '';
+  const render = () => { out.innerHTML = '<pre style="white-space:pre-wrap;color:var(--text2);font-size:12px;margin:0;">' + (log.join('\n') + (progress ? '\n' + progress : '')) + '</pre>'; };
+  const step = (m) => { log.push(m); progress = ''; render(); };
+  toast('Analisi prodotti importati (SH-)...', 'warning');
+  try {
+    step('1) Cerco i prodotti importati da Shopify (barcode SH-)...');
+    const { data: prods, error } = await sb.from('products').select('id,name,barcode');
+    if (error) throw new Error('Query prodotti Supabase: ' + error.message);
+    const sh = (prods || []).filter(p => p.barcode && String(p.barcode).startsWith('SH-'));
+    step('   → ' + sh.length + ' prodotti importati trovati (su ' + (prods ? prods.length : 0) + ' totali).');
+    if (!sh.length) { step('✅ Nessun prodotto SH- da eliminare.'); toast('Niente da eliminare'); return; }
+
+    const examples = sh.slice(0, 8).map(p => '  - ' + (p.name || ('#' + p.id))).join('\n');
+    if (!confirm('Elimino ' + sh.length + ' prodotti IMPORTATI da Shopify (barcode SH-).\n\nEsempi:\n' + examples + '\n\nRestano TUTTI i tuoi prodotti reali. Potrai ri-importarli da Shopify quando vuoi. Continuare?')) {
+      step('Annullato dall\'utente. (' + sh.length + ' SH- trovati)');
+      return;
+    }
+
+    step('2) Elimino in blocchi...');
+    const ids = sh.map(p => p.id);
+    let del = 0, fail = 0; const errs = [];
+    for (let i = 0; i < ids.length; i += 50) {
+      const chunk = ids.slice(i, i + 50);
+      const { error: dErr } = await sb.from('products').delete().in('id', chunk);
+      if (dErr) {
+        // Un intoppo su un blocco (es. vincolo su una vendita): riprovo riga per riga.
+        for (const id of chunk) {
+          const { error: e2 } = await sb.from('products').delete().eq('id', id);
+          if (e2) { fail++; errs.push('#' + id + ': ' + e2.message); } else del++;
+        }
+      } else { del += chunk.length; }
+      progress = '   → ' + Math.min(i + 50, ids.length) + '/' + ids.length + ' (eliminati ' + del + ', falliti ' + fail + ')';
+      render();
+    }
+    progress = '';
+    step('   → completato: ' + del + ' eliminati, ' + fail + ' falliti.');
+    if (errs.length) step('Dettagli falliti (primi 10):\n  - ' + errs.slice(0, 10).join('\n  - '));
+    step('✅ Fatto.');
+    await logActivity('Eliminati ' + del + ' prodotti importati (SH-)', 'shopify');
+    toast(del + ' prodotti importati eliminati' + (fail ? ' (' + fail + ' falliti)' : ''));
+    if (typeof loadProducts === 'function') loadProducts();
+    loadShopifyLinked();
+  } catch (e) {
+    step('❌ ERRORE: ' + e.message);
+    toast('Errore eliminazione: ' + e.message, 'danger');
   }
 }
 
