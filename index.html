@@ -3113,6 +3113,18 @@ async function shopifyExportAnalyze() {
       if (!tokens.length) return false;
       return shopSets.some(set => tokens.every(t => set.has(t)));
     };
+    // Controllo "sospetto doppione": esiste su Shopify un prodotto che condivide
+    // QUASI tutte le parole (tutte tranne una)? Tipico di refusi/parola diversa
+    // (es. "afana" vs "afnan"). Serve almeno 3 parole per non segnalare a caso.
+    const suspectTitle = (tokens) => {
+      if (tokens.length < 3) return null;
+      let best = -1, bestIdx = -1;
+      for (let i = 0; i < shopSets.length; i++) {
+        let ov = 0; tokens.forEach(t => { if (shopSets[i].has(t)) ov++; });
+        if (ov > best) { best = ov; bestIdx = i; }
+      }
+      return (best === tokens.length - 1) ? (shopProds[bestIdx].title || '') : null;
+    };
 
     step('3) Confronto e individuo i mancanti...');
     // Raggruppo le righe del gestionale per nome-nocciolo (1 prodotto reale = 1 gruppo).
@@ -3124,7 +3136,8 @@ async function shopifyExportAnalyze() {
       const g = groups[k];
       const realBc = g.map(p => p.barcode).filter(b => b && !String(b).startsWith('SH-'));
       const alreadyLinked = g.some(p => p.shopify_variant_id);
-      const byName = existsOnShopify(shopifyCoreTokens(g[0].name));
+      const tokens = shopifyCoreTokens(g[0].name);
+      const byName = existsOnShopify(tokens);
       const byBarcode = realBc.some(b => shopBarcodes.has(String(b)));
       if (alreadyLinked || byName || byBarcode) { present++; return; }
       // Mancante: scelgo la riga "migliore" da creare (barcode reale > più scorta > id basso).
@@ -3135,21 +3148,27 @@ async function shopifyExportAnalyze() {
         if ((b.qty || 0) !== (a.qty || 0)) return (b.qty || 0) - (a.qty || 0);
         return (a.id || 0) - (b.id || 0);
       });
-      plan.push(g[0]);
+      plan.push({ p: g[0], hint: suspectTitle(tokens) });
     });
+    // Ordino: prima i "sicuri" (spuntati), poi i "sospetti" (da rivedere).
+    plan.sort((a, b) => (a.hint ? 1 : 0) - (b.hint ? 1 : 0));
     _shExportPlan = plan;
+    const suspects = plan.filter(x => x.hint).length;
 
-    step('   → ' + present + ' già su Shopify · ' + plan.length + ' DA CREARE.');
+    step('   → ' + present + ' già su Shopify · ' + plan.length + ' DA CREARE' + (suspects ? ' (di cui ' + suspects + ' ⚠️ possibili doppioni da rivedere)' : '') + '.');
     if (!plan.length) { step('✅ Niente da creare: il gestionale è già tutto su Shopify.'); toast('Nessun prodotto mancante'); return; }
 
-    // Anteprima con spunte: l'utente sceglie cosa creare davvero.
-    let html = '<div style="font-size:13px;margin-bottom:8px;"><b>' + plan.length + ' prodotti da creare su Shopify</b> (' + present + ' già presenti). Saranno creati come <b>BOZZA</b> (non visibili ai clienti) con prezzo, brand e scorta — aggiungerai foto/descrizioni e li pubblicherai da Shopify. Togli la spunta a quelli che NON vuoi creare:</div>';
+    // Anteprima con spunte: l'utente sceglie cosa creare davvero. I sospetti sono
+    // già DESELEZIONATI: non vengono creati a meno che tu non li spunti apposta.
+    let html = '<div style="font-size:13px;margin-bottom:8px;"><b>' + plan.length + ' prodotti da creare su Shopify</b> (' + present + ' già presenti). Saranno creati come <b>BOZZA</b> (non visibili ai clienti) con prezzo, brand e scorta. ' + (suspects ? '<b style="color:var(--danger);">' + suspects + ' segnati ⚠️</b> sono possibili doppioni (già deselezionati): spuntali solo se sei sicuro. ' : '') + 'Togli la spunta a quelli che NON vuoi creare:</div>';
     html += '<div style="max-height:240px;overflow:auto;border:1px solid var(--line,#ddd);border-radius:8px;padding:8px;">';
-    plan.forEach((p, i) => {
+    plan.forEach((it, i) => {
+      const p = it.p;
       const bc = p.barcode && !String(p.barcode).startsWith('SH-') ? (' · ' + p.barcode) : '';
+      const warn = it.hint ? '<div style="font-size:11px;color:var(--danger);margin-left:26px;">⚠️ forse è già su Shopify come: "' + it.hint + '"</div>' : '';
       html += '<label style="display:flex;gap:8px;align-items:center;padding:3px 0;font-size:13px;cursor:pointer;">'
-        + '<input type="checkbox" class="sh-exp-chk" data-i="' + i + '" checked>'
-        + '<span>' + (p.name || ('#' + p.id)) + ' <span style="color:var(--text3);">(' + (p.brand || 's/marca') + ' · qty ' + (p.qty || 0) + bc + ')</span></span></label>';
+        + '<input type="checkbox" class="sh-exp-chk" data-i="' + i + '"' + (it.hint ? '' : ' checked') + '>'
+        + '<span>' + (p.name || ('#' + p.id)) + ' <span style="color:var(--text3);">(' + (p.brand || 's/marca') + ' · qty ' + (p.qty || 0) + bc + ')</span></span></label>' + warn;
     });
     html += '</div>';
     html += '<button class="btn btn-gold" style="margin-top:10px;" onclick="shopifyExportConfirm()"><i class="ti ti-cloud-upload"></i> Crea i selezionati su Shopify</button>';
@@ -3191,7 +3210,7 @@ async function shopifyCreateProduct(p, locationId) {
 async function shopifyExportConfirm() {
   const out = document.getElementById('sh-sync-result');
   const checks = Array.from(document.querySelectorAll('.sh-exp-chk'));
-  const chosen = checks.filter(c => c.checked).map(c => _shExportPlan[parseInt(c.dataset.i, 10)]).filter(Boolean);
+  const chosen = checks.filter(c => c.checked).map(c => { const it = _shExportPlan[parseInt(c.dataset.i, 10)]; return it && it.p; }).filter(Boolean);
   if (!chosen.length) { toast('Nessun prodotto selezionato', 'warning'); return; }
   if (!confirm('Creo ' + chosen.length + ' nuovi prodotti su Shopify come BOZZA (non visibili ai clienti finché non li pubblichi tu). Continuare?')) return;
   const log = []; let progress = '';
