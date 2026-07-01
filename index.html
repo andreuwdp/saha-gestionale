@@ -1112,6 +1112,7 @@ async function initApp(user) {
     checkResetRequests();
     setInterval(updatePresenzaClock, 1000);
     updatePresenzaClock();
+    startShopifyOrderAutoSync(); // controllo automatico ordini Shopify → scorte
     console.log('initApp complete');
   } catch(e) {
     console.error('initApp ERROR:', e);
@@ -3221,47 +3222,92 @@ async function shopifyExportConfirm() {
   }
 }
 
+// Trova la riga del gestionale corrispondente a un articolo dell'ordine Shopify:
+// prima per variante collegata, poi (fallback) per nome normalizzato.
+async function shopifyFindProductForItem(item, byName) {
+  if (item.variant_id) {
+    const { data } = await sb.from('products').select('id,qty,sold').eq('shopify_variant_id', String(item.variant_id)).limit(1);
+    if (data && data[0]) return data[0];
+  }
+  const key = normName(item.title || '');
+  if (key && byName[key]) return byName[key];
+  return null;
+}
+
+// Cuore della sincronizzazione ordini Shopify → scorte gestionale.
+// silent=true per il polling automatico (nessun toast/scritte). Ritorna i conteggi.
+async function shopifyProcessOrders(silent) {
+  const data = await shopifyApi('orders.json?status=any&financial_status=paid&limit=250');
+  const orders = data.orders || [];
+  // Indice per-nome per il fallback quando la variante non è collegata.
+  const { data: allProds } = await sb.from('products').select('id,name,qty,sold');
+  const byName = {};
+  (allProds || []).forEach(p => { const k = normName(p.name); if (k) byName[k] = p; });
+
+  let processed = 0, decremented = 0, notFound = 0;
+  for (const o of orders) {
+    if (o.financial_status !== 'paid') continue;
+    // Già processato? (dedup per numero ordine → nessun doppio scarico)
+    const { data: existing } = await sb.from('sales').select('id').eq('shopify_order_id', String(o.id)).maybeSingle();
+    if (existing) continue;
+
+    for (const item of (o.line_items || [])) {
+      await sb.from('sales').insert({
+        product_name: item.title,
+        brand: item.vendor || '',
+        qty: item.quantity,
+        price: parseFloat(item.price),
+        total: parseFloat(item.price) * item.quantity,
+        channel: 'shopify',
+        user_name: 'Shopify',
+        shopify_order_id: String(o.id)
+      });
+      const prod = await shopifyFindProductForItem(item, byName);
+      if (prod) {
+        const newQty = Math.max(0, (prod.qty || 0) - item.quantity);
+        await sb.from('products').update({ qty: newQty, sold: (prod.sold || 0) + item.quantity }).eq('id', prod.id);
+        prod.qty = newQty; prod.sold = (prod.sold || 0) + item.quantity; // aggiorna cache in caso di più righe stesso prodotto
+        decremented++;
+      } else { notFound++; }
+    }
+    processed++;
+  }
+  if (processed) await logActivity('Ordini Shopify sincronizzati: ' + processed + ' (scorte scalate: ' + decremented + (notFound ? ', non trovati: ' + notFound : '') + ')', 'shopify');
+  return { processed, decremented, notFound };
+}
+
 async function shopifyFetchOrders() {
   if (!shopifyConfig.connected) return;
   toast('Scaricamento ordini Shopify...','warning');
   try {
-    const data = await shopifyApi('orders.json?status=any&limit=50');
-    const orders = data.orders || [];
-    let processed = 0;
-    for (const o of orders) {
-      if (o.financial_status !== 'paid') continue;
-      // Check if already processed
-      const { data: existing } = await sb.from('sales').select('id').eq('shopify_order_id', String(o.id)).single();
-      if (existing) continue;
-      
-      for (const item of o.line_items) {
-        await sb.from('sales').insert({
-          product_name: item.title,
-          brand: item.vendor || '',
-          qty: item.quantity,
-          price: parseFloat(item.price),
-          total: parseFloat(item.price) * item.quantity,
-          channel: 'shopify',
-          user_name: 'Shopify',
-          shopify_order_id: String(o.id)
-        });
-        // Decrease stock
-        const { data: prod } = await sb.from('products').select('id,qty,sold').eq('shopify_variant_id', String(item.variant_id)).single();
-        if (prod) {
-          await sb.from('products').update({
-            qty: Math.max(0, (prod.qty||0) - item.quantity),
-            sold: (prod.sold||0) + item.quantity
-          }).eq('id', prod.id);
-        }
-      }
-      processed++;
-    }
-    await logActivity('Scaricati ' + processed + ' ordini da Shopify', 'shopify');
-    toast('Processati ' + processed + ' ordini Shopify!');
-    document.getElementById('sh-sync-result').innerHTML = '<span style="color:var(--success);">✅ ' + processed + ' ordini processati</span>';
+    const r = await shopifyProcessOrders(false);
+    toast('Processati ' + r.processed + ' ordini Shopify!');
+    document.getElementById('sh-sync-result').innerHTML = '<span style="color:var(--success);">✅ ' + r.processed + ' ordini processati · ' + r.decremented + ' scorte scalate' + (r.notFound ? ' · ' + r.notFound + ' articoli non trovati' : '') + '</span>';
+    if (typeof loadProducts === 'function') loadProducts();
   } catch(e) {
     toast('Errore ordini: ' + e.message, 'danger');
   }
+}
+
+// Avvia il controllo AUTOMATICO degli ordini Shopify: una volta all'avvio e poi
+// ogni pochi minuti finché l'app è aperta. Gli ordini a negozio chiuso vengono
+// recuperati alla riapertura (dedup per shopify_order_id → mai doppio scarico).
+let _shOrderSyncStarted = false;
+function startShopifyOrderAutoSync() {
+  if (_shOrderSyncStarted) return;
+  _shOrderSyncStarted = true;
+  const tick = async () => {
+    if (!shopifyConfig || !shopifyConfig.connected) return;
+    try {
+      const r = await shopifyProcessOrders(true);
+      if (r.processed) {
+        toast(r.processed + ' nuovi ordini Shopify: scorte aggiornate');
+        if (typeof loadProducts === 'function') loadProducts();
+      }
+    } catch (e) { console.log('AutoSync ordini Shopify:', e.message); }
+  };
+  setTimeout(tick, 8000);          // primo giro poco dopo l'avvio
+  setInterval(tick, 3 * 60 * 1000); // poi ogni 3 minuti
 }
 
 async function loadShopifyLinked() {
