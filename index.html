@@ -849,6 +849,9 @@ tr:hover td{background:var(--gold-glow);}
           <button class="btn btn-outline" onclick="shopifyExportAnalyze()" id="sh-export-btn" disabled>
             <i class="ti ti-cloud-upload"></i> Esporta mancanti su Shopify
           </button>
+          <button class="btn btn-outline" onclick="shopifyLinkByName()" id="sh-link-btn" disabled>
+            <i class="ti ti-link"></i> Collega prodotti a Shopify (per nome)
+          </button>
           <button class="btn btn-outline" onclick="shopifyFetchOrders()" id="sh-orders-btn" disabled>
             <i class="ti ti-shopping-cart"></i> Scarica ordini Shopify
           </button>
@@ -2773,6 +2776,8 @@ function updateShopifyStatus() {
   document.getElementById('sh-orders-btn').disabled = !connected;
   const expBtn = document.getElementById('sh-export-btn');
   if (expBtn) expBtn.disabled = !connected;
+  const linkBtn = document.getElementById('sh-link-btn');
+  if (linkBtn) linkBtn.disabled = !connected;
   const whBtn = document.getElementById('sh-webhook-btn');
   if (whBtn) whBtn.disabled = !connected;
 }
@@ -3268,6 +3273,133 @@ async function shopifyExportConfirm() {
   }
 }
 
+// ── Collega prodotti gestionale ↔ Shopify (per nome) ─────────────────────────
+// Ristabilisce il legame 1 prodotto = 1 variante quando i prodotti ESISTONO già
+// su Shopify ma la riga del gestionale non ha shopify_variant_id (es. dopo aver
+// eliminato i doppioni SH-). NON crea nulla e NON tocca le scorte: scrive solo
+// shopify_product_id/shopify_variant_id. Match per SOTTOINSIEME (come l'export):
+// tutte le parole-chiave del nome gestionale devono comparire nel titolo Shopify.
+let _shLinkPlan = [];
+
+async function shopifyLinkByName() {
+  if (!shopifyConfig.connected) return;
+  const out = document.getElementById('sh-sync-result');
+  const log = []; let progress = '';
+  const render = () => { out.innerHTML = '<pre style="white-space:pre-wrap;color:var(--text2);font-size:12px;margin:0;">' + (log.join('\n') + (progress ? '\n' + progress : '')) + '</pre>'; };
+  const step = (m) => { log.push(m); progress = ''; render(); };
+  toast('Analisi collegamenti...', 'warning');
+  try {
+    step('1) Leggo i prodotti del gestionale...');
+    const { data: prods, error: qErr } = await sb.from('products').select('*');
+    if (qErr) throw new Error('Query prodotti Supabase: ' + qErr.message);
+    const gest = prods || [];
+    // Solo le righe NON ancora collegate (shopify_variant_id vuoto/null).
+    const unlinked = gest.filter(p => !p.shopify_variant_id || String(p.shopify_variant_id).trim() === '');
+    const linkedNow = gest.length - unlinked.length;
+    step('   → ' + gest.length + ' righe (' + linkedNow + ' già collegate, ' + unlinked.length + ' da collegare).');
+    if (!unlinked.length) { step('✅ Tutti i prodotti sono già collegati.'); toast('Niente da collegare'); return; }
+
+    step('2) Scarico TUTTI i prodotti già su Shopify...');
+    const shopProds = await shopifyFetchAllProducts((n) => { progress = '   → ' + n + ' scaricati...'; render(); });
+    // Per ogni prodotto Shopify: variante[0] + insieme parole-chiave (titolo+vendor).
+    const shop = shopProds.map(sp => {
+      const v = (sp.variants || [])[0] || {};
+      return { productId: String(sp.id), variantId: v.id ? String(v.id) : '', title: sp.title || '', vendor: sp.vendor || '', set: new Set(shopifyCoreTokens((sp.title || '') + ' ' + (sp.vendor || ''))) };
+    }).filter(s => s.variantId);
+    step('   → ' + shop.length + ' prodotti Shopify con variante.');
+
+    // Varianti già usate da righe collegate: non ricollegarle a un'altra riga.
+    const claimed = new Set(gest.map(p => p.shopify_variant_id && String(p.shopify_variant_id)).filter(Boolean));
+
+    step('3) Cerco le corrispondenze per nome...');
+    const plan = [];
+    unlinked.forEach(p => {
+      const tokens = shopifyCoreTokens(p.name || '');
+      if (!tokens.length) { plan.push({ p, shop: null, safe: false, note: 'nome vuoto/non confrontabile' }); return; }
+      // Sottoinsieme: tutte le parole del gestionale presenti nel titolo Shopify.
+      const matches = shop.filter(s => !claimed.has(s.variantId) && tokens.every(t => s.set.has(t)));
+      if (matches.length === 1) { plan.push({ p, shop: matches[0], safe: true, note: '' }); return; }
+      if (matches.length > 1) { plan.push({ p, shop: matches[0], safe: false, note: matches.length + ' possibili corrispondenze (ambiguo)' }); return; }
+      // Nessun sottoinsieme esatto: "quasi" (tutte tranne una parola, min 3) → suggerimento.
+      if (tokens.length >= 3) {
+        let best = -1, bestIdx = -1;
+        for (let i = 0; i < shop.length; i++) { if (claimed.has(shop[i].variantId)) continue; let ov = 0; tokens.forEach(t => { if (shop[i].set.has(t)) ov++; }); if (ov > best) { best = ov; bestIdx = i; } }
+        if (best === tokens.length - 1 && bestIdx >= 0) { plan.push({ p, shop: shop[bestIdx], safe: false, note: 'quasi-uguale (rivedi)' }); return; }
+      }
+      plan.push({ p, shop: null, safe: false, note: 'nessuna corrispondenza su Shopify' });
+    });
+
+    // Doppio-uso: se due righe puntano alla stessa variante, deseleziona entrambe.
+    const cnt = {};
+    plan.forEach(it => { if (it.shop) cnt[it.shop.variantId] = (cnt[it.shop.variantId] || 0) + 1; });
+    plan.forEach(it => { if (it.shop && cnt[it.shop.variantId] > 1) { it.safe = false; it.note = 'stessa variante di un altro (ambiguo)'; } });
+
+    const linkable = plan.filter(it => it.shop);
+    const safeCount = plan.filter(it => it.safe).length;
+    const noMatch = plan.filter(it => !it.shop).length;
+    // Ordino: prima i "sicuri" (spuntati), poi i dubbi, poi i senza-match.
+    plan.sort((a, b) => (a.safe ? 0 : (a.shop ? 1 : 2)) - (b.safe ? 0 : (b.shop ? 1 : 2)));
+    _shLinkPlan = plan;
+
+    step('   → ' + safeCount + ' da collegare (sicuri) · ' + (linkable.length - safeCount) + ' dubbi · ' + noMatch + ' senza corrispondenza.');
+    if (!linkable.length) { step('Nessuna corrispondenza trovata su Shopify per i prodotti da collegare.'); toast('Nessun collegamento possibile'); return; }
+
+    let html = '<div style="font-size:13px;margin-bottom:8px;"><b>' + safeCount + ' prodotti pronti da collegare</b> a Shopify (per nome). NON tocca le scorte. I <b>dubbi</b> sono già deselezionati: spuntali solo se la corrispondenza è giusta. Togli la spunta a quelli sbagliati:</div>';
+    html += '<div style="max-height:260px;overflow:auto;border:1px solid var(--line,#ddd);border-radius:8px;padding:8px;">';
+    plan.forEach((it, i) => {
+      if (!it.shop) return; // i senza-match non si mostrano tra i collegabili
+      const warn = it.safe ? '' : '<div style="font-size:11px;color:var(--danger);margin-left:26px;">⚠️ ' + it.note + '</div>';
+      html += '<label style="display:flex;gap:8px;align-items:center;padding:3px 0;font-size:13px;cursor:pointer;">'
+        + '<input type="checkbox" class="sh-link-chk" data-i="' + i + '"' + (it.safe ? ' checked' : '') + '>'
+        + '<span>' + (it.p.name || ('#' + it.p.id)) + ' <span style="color:var(--text3);">→ "' + it.shop.title + '"</span></span></label>' + warn;
+    });
+    html += '</div>';
+    if (noMatch) html += '<div style="font-size:12px;color:var(--text3);margin-top:6px;">' + noMatch + ' prodotti senza corrispondenza su Shopify (probabile che non siano ancora online: usa "Esporta mancanti").</div>';
+    html += '<button class="btn btn-gold" style="margin-top:10px;" onclick="shopifyLinkConfirm()"><i class="ti ti-link"></i> Collega i selezionati</button>';
+    out.innerHTML = html;
+    toast(safeCount + ' pronti da collegare — conferma');
+  } catch (e) {
+    step('❌ ERRORE: ' + e.message);
+    toast('Errore analisi collegamenti: ' + e.message, 'danger');
+  }
+}
+
+async function shopifyLinkConfirm() {
+  const out = document.getElementById('sh-sync-result');
+  const checks = Array.from(document.querySelectorAll('.sh-link-chk'));
+  const chosen = checks.filter(c => c.checked).map(c => _shLinkPlan[parseInt(c.dataset.i, 10)]).filter(it => it && it.shop);
+  if (!chosen.length) { toast('Niente selezionato', 'warning'); return; }
+  if (!confirm('Collego ' + chosen.length + ' prodotti del gestionale alle rispettive varianti Shopify. Le scorte NON vengono toccate. Continuare?')) return;
+  const log = []; let progress = '';
+  const render = () => { out.innerHTML = '<pre style="white-space:pre-wrap;color:var(--text2);font-size:12px;margin:0;">' + (log.join('\n') + (progress ? '\n' + progress : '')) + '</pre>'; };
+  const step = (m) => { log.push(m); progress = ''; render(); };
+  toast('Collegamento in corso...', 'warning');
+  try {
+    let linked = 0, failed = 0; const errs = [];
+    for (let i = 0; i < chosen.length; i++) {
+      const it = chosen[i];
+      const { error } = await sb.from('products').update({
+        shopify_product_id: it.shop.productId,
+        shopify_variant_id: it.shop.variantId,
+        updated_at: new Date().toISOString()
+      }).eq('id', it.p.id);
+      if (error) { failed++; errs.push((it.p.name || ('#' + it.p.id)) + ': ' + error.message); }
+      else linked++;
+      if (i % 5 === 0 || i === chosen.length - 1) { progress = '   → ' + (i + 1) + '/' + chosen.length + ' (collegati ' + linked + ', falliti ' + failed + ')'; render(); }
+    }
+    progress = '';
+    step('✅ Fatto: ' + linked + ' collegati' + (failed ? ', ' + failed + ' falliti' : '') + '.');
+    if (errs.length) step('Falliti (primi 10):\n  - ' + errs.slice(0, 10).join('\n  - '));
+    await logActivity('Shopify: ' + linked + ' prodotti collegati per nome', 'shopify');
+    toast(linked + ' prodotti collegati a Shopify');
+    _shLinkPlan = [];
+    loadShopifyLinked();
+  } catch (e) {
+    step('❌ ERRORE: ' + e.message);
+    toast('Errore collegamento: ' + e.message, 'danger');
+  }
+}
+
 // Trova la riga del gestionale corrispondente a un articolo dell'ordine Shopify:
 // prima per variante collegata, poi (fallback) per nome normalizzato.
 async function shopifyFindProductForItem(item, byName) {
@@ -3293,6 +3425,10 @@ async function shopifyProcessOrders(silent) {
   let processed = 0, decremented = 0, notFound = 0;
   for (const o of orders) {
     if (o.financial_status !== 'paid') continue;
+    // Ordine ANNULLATO su Shopify: non scalare (e non reimportarlo se la riga
+    // sales dedup viene rimossa). Un ordine annullato ma non rimborsato resta
+    // financial_status="paid", quindi va escluso esplicitamente via cancelled_at.
+    if (o.cancelled_at) continue;
     // Già processato? (dedup per numero ordine → nessun doppio scarico)
     const { data: existing } = await sb.from('sales').select('id').eq('shopify_order_id', String(o.id)).maybeSingle();
     if (existing) continue;
