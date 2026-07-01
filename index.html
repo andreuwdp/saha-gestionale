@@ -1491,6 +1491,7 @@ async function saveEditProduct() {
   if (!updates.name) { toast('Il nome è obbligatorio','warning'); return; }
   const { error } = await sb.from('products').update(updates).eq('id', id);
   if (error) { toast('Errore aggiornamento: '+error.message,'danger'); return; }
+  autoPushStock(id); // se collegato a Shopify, aggiorna subito la scorta online
   // Log changes
   var changes = [];
   if (p.name !== updates.name) changes.push('nome: '+p.name+'→'+updates.name);
@@ -1637,6 +1638,7 @@ async function confirmSale() {
     }
     if (error) { toast('Errore regalo: '+error.message+' (crea/aggiorna la tabella "regali")','danger'); return; }
     await sb.from('products').update({qty:newQty,updated_at:new Date().toISOString()}).eq('id',p.id);
+    autoPushStock(p.id);
     await logActivity(`Regalo da scanner: ${p.name} x${sellQty}`, 'regalo', `qty:${sellQty}`);
     document.getElementById('flash-title').textContent = '🎁 Regalo: '+p.name;
     document.getElementById('flash-sub').textContent = `x${sellQty} · rimangono ${newQty} pz`;
@@ -1667,6 +1669,7 @@ async function confirmSale() {
   if (error) { toast('Errore vendita: '+error.message,'danger'); return; }
   // Update stock
   await sb.from('products').update({qty:newQty,sold:(p.sold||0)+sellQty,updated_at:new Date().toISOString()}).eq('id',p.id);
+  autoPushStock(p.id); // vendita in negozio → scala la scorta anche su Shopify
   await logActivity(`Vendita ${saleChannel} (${salePayment}): ${p.name} x${sellQty} — €${total}`, 'vendita', `qty:${sellQty},total:${total},pagamento:${salePayment}`);
   // Flash
   document.getElementById('flash-title').textContent = 'Venduto: '+p.name;
@@ -1840,6 +1843,7 @@ async function receiveOrder(orderId, productId, qty, name) {
   await sb.from('orders').update({status:'Ricevuto'}).eq('id',orderId);
   const { data: prod } = await sb.from('products').select('qty').eq('id',productId).single();
   if (prod) await sb.from('products').update({qty:(prod.qty||0)+qty,updated_at:new Date().toISOString()}).eq('id',productId);
+  autoPushStock(productId); // merce ricevuta → aggiorna la scorta su Shopify
   await logActivity(`Merce ricevuta: ${name} +${qty} pz`, 'ordini');
   toast('Merce ricevuta! Stock aggiornato.');
   loadOrdini();
@@ -1940,6 +1944,7 @@ async function saveRegalo() {
   if (error) { toast('Errore: '+error.message,'danger'); return; }
   // Scarica dal magazzino
   await sb.from('products').update({qty:(pr.data.qty||0)-quantita, updated_at:new Date().toISOString()}).eq('id', pid);
+  autoPushStock(pid);
   var idx = allProducts.findIndex(x=>x.id===pid);
   if (idx>=0) allProducts[idx].qty = (pr.data.qty||0)-quantita;
   await logActivity('Regalo: '+((nome+' '+cognome).trim())+' — '+productName+' x'+quantita, 'regalo');
@@ -1961,6 +1966,7 @@ async function deleteRegalo(id) {
     var pr = await sb.from('products').select('qty').eq('id', row.product_id).single();
     if (!pr.error && pr.data) {
       await sb.from('products').update({qty:(pr.data.qty||0)+q, updated_at:new Date().toISOString()}).eq('id', row.product_id);
+      autoPushStock(row.product_id);
       var idx = allProducts.findIndex(x=>x.id===row.product_id);
       if (idx>=0) allProducts[idx].qty = (pr.data.qty||0)+q;
     }
@@ -2997,6 +3003,22 @@ async function pushStockOne(p, locationId) {
     location_id: locationId, inventory_item_id: invId, available: qty
   });
   return true;
+}
+
+// Invio AUTOMATICO a Shopify della scorta di UN prodotto dopo una modifica nel
+// gestionale (vendita, modifica prodotto, regalo, merce ricevuta). Best-effort:
+// se Shopify non è collegato o il prodotto non è collegato non fa nulla; gli
+// errori non bloccano l'operazione principale. Rilegge la riga così invia la
+// quantità aggiornata appena scritta sul DB.
+async function autoPushStock(productId) {
+  try {
+    if (!productId || typeof shopifyConfig === 'undefined' || !shopifyConfig || !shopifyConfig.connected) return;
+    const { data } = await sb.from('products').select('*').eq('id', productId).limit(1);
+    const p = data && data[0];
+    if (!p || !p.shopify_variant_id) return;
+    const locationId = await getShopifyLocationId();
+    if (locationId) await pushStockOne(p, locationId);
+  } catch (e) { console.log('autoPushStock:', e.message); }
 }
 
 async function shopifySendStock() {
